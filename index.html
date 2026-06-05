@@ -1,0 +1,3025 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>The Pit Wall · Live F1 2026 Dashboard</title>
+<meta name="description" content="A personal, live-updating F1 2026 dashboard. Countdown to the next Grand Prix, race weekend weather, standings, last race recap and championship picture." />
+<meta name="theme-color" content="#0a0a0a" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="Pit Wall" />
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@500;700;900&family=Manrope:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
+
+<style>
+/* ============================================================ */
+/* DESIGN TOKENS — from 04-uiux-brief.md                         */
+/* ============================================================ */
+:root {
+  /* Foundation (fixed) */
+  --bg: #0a0a0a;
+  --bg-elev: #121212;
+  --surface: #161616;
+  --surface-2: #1c1c1c;
+  --border: rgba(255, 255, 255, 0.08);
+  --border-strong: rgba(255, 255, 255, 0.16);
+  --text: #f5f5f5;
+  --text-dim: #a1a1a1;
+  --text-mute: #6b6b6b;
+  --good: #34d399;
+  --warn: #fbbf24;
+
+  /* Accent (dynamic — swaps to driver team color at runtime) */
+  --accent: #e10600;
+  --accent-soft: rgba(225, 6, 0, 0.14);
+  --accent-glow: rgba(225, 6, 0, 0.35);
+
+  /* Typography */
+  --font-display: "Big Shoulders Display", "Arial Narrow", sans-serif;
+  --font-body: "Manrope", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+  --font-serif: "Instrument Serif", Georgia, serif;
+
+  /* Geometry */
+  --radius-sm: 6px;
+  --radius-md: 12px;
+  --radius-lg: 20px;
+  --pad: clamp(16px, 4vw, 32px);
+  --max: 1240px;
+
+  /* Mouse-follow accent glow position (set via JS) */
+  --mx: 50%;
+  --my: 50%;
+
+  /* Easing */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html { scroll-behavior: smooth; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-body);
+  font-size: 15px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  overflow-x: hidden;
+  position: relative;
+  min-height: 100vh;
+}
+
+/* Subtle film-grain overlay (Phase 7 polish) */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/><feColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.06 0'/></filter><rect width='160' height='160' filter='url(%23n)'/></svg>");
+  opacity: 0.55;
+  z-index: 999;
+  mix-blend-mode: overlay;
+}
+
+/* Mouse-follow accent glow (skipped on touch) */
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(600px circle at var(--mx) var(--my), var(--accent-soft), transparent 50%);
+  opacity: 0.5;
+  z-index: 0;
+  transition: opacity 0.3s;
+}
+
+a { color: inherit; text-decoration: none; }
+button { font-family: inherit; cursor: pointer; border: 0; background: none; color: inherit; }
+
+/* Italic-serif emphasis inside display headings */
+em {
+  font-style: italic;
+  font-family: var(--font-serif);
+  font-weight: 400;
+  color: var(--accent);
+}
+
+.hidden { display: none !important; }
+
+/* ============================================================ */
+/* WELCOME SCREEN — F1 5-light start sequence                    */
+/* ============================================================ */
+.welcome {
+  position: fixed;
+  inset: 0;
+  background: radial-gradient(ellipse at center, #0d0d0d 0%, #050505 100%);
+  z-index: 2000;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: var(--pad);
+  text-align: center;
+  transition: opacity 0.6s var(--ease-out), visibility 0.6s var(--ease-out);
+}
+.welcome.hidden { opacity: 0; visibility: hidden; pointer-events: none; }
+
+.welcome-eyebrow {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--text-mute);
+  margin-bottom: 16px;
+  animation: fadeUp 0.7s var(--ease-out) both;
+  animation-delay: 0.1s;
+}
+.welcome-brand {
+  font-family: var(--font-display);
+  font-weight: 900;
+  font-size: clamp(56px, 13vw, 160px);
+  line-height: 0.88;
+  letter-spacing: -0.03em;
+  text-transform: uppercase;
+  margin-bottom: 8px;
+  animation: fadeUp 0.9s var(--ease-out) both;
+  animation-delay: 0.25s;
+}
+.welcome-sub {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  margin-bottom: 64px;
+  animation: fadeUp 0.9s var(--ease-out) both;
+  animation-delay: 0.4s;
+}
+
+.lights-rig {
+  display: flex;
+  gap: clamp(8px, 2vw, 18px);
+  padding: clamp(14px, 3vw, 22px) clamp(18px, 4vw, 30px);
+  background: linear-gradient(180deg, #1a1a1a 0%, #0a0a0a 100%);
+  border-radius: 12px;
+  border: 1px solid #222;
+  box-shadow: 0 16px 40px -16px rgba(0,0,0,0.8), inset 0 1px 0 rgba(255,255,255,0.04);
+  margin-bottom: 40px;
+  animation: fadeUp 0.9s var(--ease-out) both;
+  animation-delay: 0.55s;
+}
+.light {
+  width: clamp(36px, 8vw, 64px);
+  height: clamp(36px, 8vw, 64px);
+  border-radius: 50%;
+  background: radial-gradient(circle at 30% 30%, #2a0707 0%, #120303 100%);
+  border: 2px solid #181818;
+  box-shadow: inset 0 2px 4px rgba(0,0,0,0.8);
+  transition: background 0.18s ease-in, box-shadow 0.18s ease-in;
+}
+.light.on {
+  background: radial-gradient(circle at 30% 30%, #ff7676 0%, #ff1500 40%, #8a0000 100%);
+  box-shadow:
+    0 0 24px rgba(255, 21, 0, 0.85),
+    0 0 56px rgba(255, 21, 0, 0.55),
+    inset 0 2px 6px rgba(255, 200, 200, 0.4);
+  animation: lightFlash 0.18s ease-out;
+}
+@keyframes lightFlash {
+  0% { transform: scale(0.85); }
+  60% { transform: scale(1.08); }
+  100% { transform: scale(1); }
+}
+
+.welcome-status {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  min-height: 24px;
+  margin-bottom: 32px;
+  transition: color 0.4s, transform 0.4s;
+}
+.welcome-status.go {
+  color: var(--good);
+  transform: scale(1.05);
+}
+
+.welcome-go-text {
+  font-family: var(--font-display);
+  font-size: clamp(28px, 5vw, 48px);
+  font-weight: 900;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  opacity: 0;
+  transform: translateY(16px) scale(0.95);
+  transition: opacity 0.5s var(--ease-out), transform 0.5s var(--ease-out);
+  margin-bottom: 40px;
+  background: linear-gradient(90deg, var(--accent) 0%, #ffb84d 50%, var(--accent) 100%);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: shimmerText 3s ease-in-out infinite;
+}
+.welcome-go-text.visible { opacity: 1; transform: translateY(0) scale(1); }
+@keyframes shimmerText {
+  0%, 100% { background-position: 200% 0; }
+  50% { background-position: -200% 0; }
+}
+
+.welcome-enter {
+  background: var(--accent);
+  color: #fff;
+  padding: 16px 32px;
+  border-radius: 8px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  transition: all 0.3s var(--ease-out);
+  opacity: 0;
+  transform: translateY(12px);
+  pointer-events: none;
+  margin-bottom: 24px;
+}
+.welcome-enter.visible {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+.welcome-enter:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 14px 30px -10px var(--accent-glow);
+}
+
+.welcome-slang {
+  font-family: var(--font-serif);
+  font-style: italic;
+  font-size: clamp(14px, 2vw, 18px);
+  color: var(--text-mute);
+  margin-top: 16px;
+  animation: fadeUp 0.9s var(--ease-out) both;
+  animation-delay: 0.7s;
+  max-width: 480px;
+}
+
+.welcome-skip {
+  position: absolute;
+  bottom: 24px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--text-mute);
+  transition: color 0.2s;
+}
+.welcome-skip:hover { color: var(--text); }
+
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* ============================================================ */
+/* ONBOARDING — name + driver pick                               */
+/* ============================================================ */
+.onboarding {
+  position: fixed;
+  inset: 0;
+  background: var(--bg);
+  z-index: 1500;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--pad);
+  transition: opacity 0.5s var(--ease-out), visibility 0.5s var(--ease-out);
+}
+.onboarding.hidden { opacity: 0; visibility: hidden; pointer-events: none; }
+
+.onboarding-inner { width: 100%; max-width: 720px; }
+
+.onboarding-step { display: none; animation: fadeUp 0.6s var(--ease-out) both; }
+.onboarding-step.active { display: block; }
+
+.step-label {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--text-mute);
+  margin-bottom: 32px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.step-label::before {
+  content: "";
+  width: 32px; height: 1px;
+  background: var(--accent);
+}
+
+.onboarding-step h2 {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: clamp(40px, 7vw, 72px);
+  line-height: 0.95;
+  letter-spacing: -0.01em;
+  margin-bottom: 16px;
+  text-transform: uppercase;
+}
+.onboarding-step .lede {
+  color: var(--text-dim);
+  font-size: 16px;
+  max-width: 480px;
+  margin-bottom: 32px;
+}
+
+#nameInput {
+  width: 100%;
+  max-width: 480px;
+  background: transparent;
+  border: 0;
+  border-bottom: 2px solid var(--border-strong);
+  color: var(--text);
+  font-family: var(--font-display);
+  font-size: clamp(32px, 5vw, 48px);
+  font-weight: 700;
+  text-transform: uppercase;
+  padding: 12px 0;
+  outline: none;
+  letter-spacing: -0.01em;
+  transition: border-color 0.2s;
+}
+#nameInput:focus { border-bottom-color: var(--accent); }
+#nameInput::placeholder { color: var(--text-mute); }
+
+.onboarding-actions {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  margin-top: 32px;
+  flex-wrap: wrap;
+}
+
+.btn-primary {
+  background: var(--accent);
+  color: #fff;
+  padding: 14px 28px;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  transition: all 0.2s var(--ease-out);
+  box-shadow: 0 0 0 0 var(--accent-glow);
+}
+.btn-primary:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 24px -8px var(--accent-glow);
+}
+.btn-primary:disabled { opacity: 0.35; cursor: not-allowed; }
+
+.btn-ghost {
+  color: var(--text-dim);
+  padding: 14px 0;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  transition: color 0.2s;
+}
+.btn-ghost:hover { color: var(--text); }
+
+.driver-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 10px;
+  margin-top: 24px;
+  max-height: 50vh;
+  overflow-y: auto;
+  padding: 4px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+.driver-grid::-webkit-scrollbar { width: 6px; }
+.driver-grid::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 3px; }
+
+.driver-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 14px;
+  cursor: pointer;
+  transition: all 0.25s var(--ease-out);
+  position: relative;
+  overflow: hidden;
+  text-align: left;
+  opacity: 0;
+  transform: translateY(8px);
+  animation: cardIn 0.4s var(--ease-out) both;
+}
+@keyframes cardIn { to { opacity: 1; transform: translateY(0); } }
+.driver-card::before {
+  content: "";
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 3px;
+  background: var(--team-color, var(--text-mute));
+  transition: width 0.25s var(--ease-out);
+}
+.driver-card:hover { border-color: var(--border-strong); transform: translateY(-3px); }
+.driver-card:hover::before { width: 6px; }
+.driver-card.selected {
+  border-color: var(--team-color, var(--accent));
+  background: linear-gradient(180deg, var(--surface) 0%, color-mix(in srgb, var(--team-color, var(--accent)) 14%, var(--surface)) 100%);
+}
+.driver-card.selected::before { width: 6px; }
+
+.driver-card .dc-nick {
+  font-family: var(--font-serif);
+  font-style: italic;
+  font-size: 13px;
+  color: var(--team-color, var(--text-mute));
+  margin-bottom: 6px;
+  line-height: 1.2;
+}
+.driver-card .dc-name {
+  font-family: var(--font-display);
+  font-size: 19px;
+  font-weight: 700;
+  text-transform: uppercase;
+  line-height: 1.05;
+  letter-spacing: -0.01em;
+}
+.driver-card .dc-team {
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-top: 6px;
+  font-family: var(--font-mono);
+  letter-spacing: 0.04em;
+}
+
+.scroll-hint {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-mute);
+  margin-top: 16px;
+}
+
+.empty-state {
+  padding: 24px;
+  color: var(--text-mute);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  line-height: 1.7;
+}
+.empty-state strong { color: var(--text); font-size: 13px; font-weight: 600; font-family: var(--font-body); letter-spacing: 0; text-transform: none; }
+.empty-state code { color: var(--accent); font-size: 11px; }
+
+/* ============================================================ */
+/* TOPBAR + MARQUEE                                              */
+/* ============================================================ */
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  background: rgba(10, 10, 10, 0.85);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-bottom: 1px solid var(--border);
+  padding: 14px var(--pad);
+  display: flex;
+  align-items: center;
+  gap: 24px;
+}
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-family: var(--font-display);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.brand-mark {
+  width: 8px; height: 8px;
+  background: var(--accent);
+  border-radius: 50%;
+  box-shadow: 0 0 12px var(--accent-glow);
+  animation: pulse 2s ease-in-out infinite;
+}
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+.brand-name { font-size: 16px; }
+.brand-sub {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-mute);
+  letter-spacing: 0.14em;
+  border-left: 1px solid var(--border-strong);
+  padding-left: 10px;
+}
+.live-status {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-dim);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  display: flex; align-items: center; gap: 8px;
+}
+.live-dot {
+  width: 6px; height: 6px;
+  background: var(--good);
+  border-radius: 50%;
+  animation: pulse 1.6s ease-in-out infinite;
+}
+.btn-edit-profile {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-mute);
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  transition: all 0.2s;
+}
+.btn-edit-profile:hover { color: var(--text); border-color: var(--border-strong); }
+
+.marquee {
+  overflow: hidden;
+  background: var(--accent);
+  color: #fff;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.2);
+  padding: 8px 0;
+  font-family: var(--font-display);
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  font-size: 13px;
+}
+.marquee-track {
+  display: inline-flex;
+  white-space: nowrap;
+  animation: scroll 40s linear infinite;
+  gap: 32px;
+}
+@keyframes scroll {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
+.marquee-track span { padding: 0 16px; }
+.marquee-track .dot { color: rgba(0, 0, 0, 0.4); }
+
+/* ============================================================ */
+/* MAIN LAYOUT (sections will be built out in Phase 4-6)        */
+/* ============================================================ */
+main {
+  max-width: var(--max);
+  margin: 0 auto;
+  padding: 0 var(--pad);
+  position: relative;
+  z-index: 1;
+}
+
+/* ============================================================ */
+/* NEXT RACE CARD (weekday-mode hero)                            */
+/* ============================================================ */
+.next-race-card {
+  margin-top: 40px;
+  position: relative;
+  background: linear-gradient(180deg, var(--surface) 0%, var(--surface-2) 100%);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: clamp(20px, 4vw, 36px);
+  overflow: hidden;
+  animation: fadeUp 0.7s var(--ease-out) 0.6s both;
+}
+.next-race-card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at 100% 0%, var(--accent-glow), transparent 55%);
+  pointer-events: none;
+  opacity: 0.6;
+}
+.next-race-card > * { position: relative; }
+
+.race-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 24px;
+  flex-wrap: wrap;
+}
+.race-round {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--text-mute);
+  margin-bottom: 6px;
+}
+.race-name {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: clamp(28px, 5vw, 48px);
+  line-height: 1;
+  letter-spacing: -0.01em;
+  text-transform: uppercase;
+  margin-bottom: 6px;
+}
+.race-circuit {
+  font-size: 14px;
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  letter-spacing: 0.04em;
+}
+.race-dates {
+  text-align: right;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-dim);
+  letter-spacing: 0.06em;
+}
+.race-dates .when {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 22px;
+  color: var(--text);
+  text-transform: uppercase;
+  letter-spacing: 0;
+  margin-bottom: 2px;
+}
+
+/* ============================================================ */
+/* COUNTDOWN                                                     */
+/* ============================================================ */
+.countdown {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: clamp(10px, 2vw, 20px);
+  margin: 24px 0 16px;
+}
+.countdown-cell {
+  background: rgba(0,0,0,0.35);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: clamp(14px, 2.5vw, 22px) 10px;
+  text-align: center;
+  position: relative;
+  overflow: hidden;
+}
+.countdown-cell::after {
+  content: "";
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  opacity: 0.5;
+}
+.countdown-value {
+  font-family: var(--font-display);
+  font-weight: 900;
+  font-size: clamp(34px, 6vw, 64px);
+  line-height: 1;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  display: inline-block;
+  transition: transform 0.35s var(--ease-out), opacity 0.35s var(--ease-out);
+}
+.countdown-value.flip {
+  animation: numFlip 0.45s var(--ease-out);
+}
+@keyframes numFlip {
+  0%   { transform: translateY(0) scale(1); }
+  40%  { transform: translateY(-12px) scale(0.9); opacity: 0.4; }
+  60%  { transform: translateY(8px) scale(0.95); opacity: 0.6; }
+  100% { transform: translateY(0) scale(1); opacity: 1; }
+}
+.countdown-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--text-mute);
+  margin-top: 6px;
+}
+.countdown-foot {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-mute);
+  text-align: center;
+  margin-bottom: 8px;
+}
+
+/* ============================================================ */
+/* WEEKEND WEATHER (Fri / Sat / Sun)                             */
+/* ============================================================ */
+.weekend-weather {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: clamp(8px, 1.5vw, 14px);
+  margin-top: 24px;
+  padding-top: 24px;
+  border-top: 1px solid var(--border);
+}
+.weather-card {
+  background: rgba(0,0,0,0.3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 14px 12px;
+  text-align: center;
+}
+.weather-day {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-mute);
+  margin-bottom: 6px;
+}
+.weather-icon {
+  font-size: 28px;
+  margin: 6px 0;
+  line-height: 1;
+}
+.weather-temp {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 18px;
+  letter-spacing: -0.01em;
+  margin-bottom: 2px;
+}
+.weather-rain {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-dim);
+  letter-spacing: 0.1em;
+}
+.weather-rain .drop { color: #6ec9ff; }
+.weather-na {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-mute);
+  letter-spacing: 0.1em;
+  padding: 8px 0;
+}
+
+/* ============================================================ */
+/* RACE WEEKEND MODE (LIVE / PRE-SESSION) — Phase 5              */
+/* ============================================================ */
+.race-weekend-card {
+  margin-top: 40px;
+  position: relative;
+  background: linear-gradient(180deg, var(--surface) 0%, var(--surface-2) 100%);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  padding: clamp(20px, 4vw, 36px);
+  overflow: hidden;
+  animation: fadeUp 0.7s var(--ease-out) 0.6s both;
+}
+.race-weekend-card.live { border-color: var(--accent); }
+.race-weekend-card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at 100% 0%, var(--accent-glow), transparent 50%);
+  pointer-events: none;
+  opacity: 0.7;
+}
+.race-weekend-card > * { position: relative; }
+
+.rw-eyebrow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--text-mute);
+}
+.live-pulse {
+  width: 8px; height: 8px;
+  background: #ff2929;
+  border-radius: 50%;
+  box-shadow: 0 0 12px #ff2929;
+  animation: pulse 1.2s ease-in-out infinite;
+}
+.rw-eyebrow.live-eyebrow { color: #ff5757; }
+
+.rw-session-name {
+  font-family: var(--font-display);
+  font-weight: 900;
+  font-size: clamp(42px, 8vw, 96px);
+  line-height: 0.9;
+  letter-spacing: -0.02em;
+  text-transform: uppercase;
+  margin-bottom: 6px;
+}
+.rw-session-name .status {
+  font-family: var(--font-display);
+  font-size: clamp(20px, 3vw, 36px);
+  color: var(--accent);
+  letter-spacing: 0.04em;
+  display: inline-block;
+  margin-left: 12px;
+  vertical-align: middle;
+}
+.rw-meeting-name {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--text-dim);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  margin-bottom: 24px;
+}
+
+.rw-presession-timer {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 14px;
+  margin: 20px 0;
+  max-width: 540px;
+}
+.rw-presession-timer .countdown-cell { padding: 16px 8px; }
+.rw-presession-timer .countdown-value { font-size: clamp(28px, 5vw, 48px); }
+
+.rw-live-positions {
+  margin-top: 16px;
+  background: rgba(0,0,0,0.35);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+.rw-live-header {
+  display: grid;
+  grid-template-columns: 50px 1fr 90px 90px;
+  gap: 12px;
+  padding: 10px 16px;
+  background: rgba(255,255,255,0.03);
+  border-bottom: 1px solid var(--border);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-mute);
+}
+.rw-live-row {
+  display: grid;
+  grid-template-columns: 50px 1fr 90px 90px;
+  gap: 12px;
+  padding: 10px 16px;
+  align-items: center;
+  border-bottom: 1px solid var(--border);
+  position: relative;
+}
+.rw-live-row::before {
+  content: "";
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 3px;
+  background: var(--team-color, var(--text-mute));
+}
+.rw-live-row:last-child { border-bottom: 0; }
+.rw-live-row.you {
+  background: linear-gradient(90deg, var(--accent-soft), transparent 60%);
+}
+.rw-live-row.you::before { width: 4px; background: var(--accent); }
+.rw-live-pos {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 18px;
+  text-align: center;
+}
+.rw-live-drv {
+  display: flex; flex-direction: column;
+}
+.rw-live-drv .code {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+}
+.rw-live-drv .name {
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-top: 2px;
+}
+.rw-live-meta {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-dim);
+  text-align: right;
+}
+.rw-live-indicator {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--text-mute);
+  margin-top: 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.rw-live-indicator .live-pulse { width: 6px; height: 6px; }
+
+/* ============================================================ */
+/* BLOCK STYLING (common to Cool-Down Lap, Qualifying, etc.)     */
+/* ============================================================ */
+.block {
+  padding: 64px 0 0;
+}
+.block + .block { padding-top: 56px; }
+.block-head {
+  display: flex;
+  align-items: baseline;
+  gap: 16px;
+  margin-bottom: 24px;
+  flex-wrap: wrap;
+}
+.block-num {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--text-mute);
+  flex-shrink: 0;
+}
+.block-num::before {
+  content: "§ ";
+  color: var(--accent);
+}
+.block-title {
+  font-family: var(--font-display);
+  font-weight: 900;
+  font-size: clamp(34px, 6vw, 64px);
+  line-height: 0.95;
+  letter-spacing: -0.015em;
+  text-transform: uppercase;
+}
+.block-sub {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-mute);
+  margin-left: auto;
+}
+
+.block-loading, .block-empty {
+  padding: 28px 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-mute);
+}
+
+/* ============================================================ */
+/* COOL-DOWN LAP (last race podium)                              */
+/* ============================================================ */
+.podium {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+.podium-step {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 20px 18px;
+  position: relative;
+  overflow: hidden;
+  transition: transform 0.25s var(--ease-out);
+}
+.podium-step::before {
+  content: "";
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 4px;
+  background: var(--team-color, var(--accent));
+}
+.podium-step:hover { transform: translateY(-3px); border-color: var(--border-strong); }
+.podium-pos {
+  font-family: var(--font-display);
+  font-weight: 900;
+  font-size: clamp(40px, 6vw, 72px);
+  line-height: 1;
+  letter-spacing: -0.02em;
+  color: var(--text-mute);
+  margin-bottom: 8px;
+}
+.podium-step[data-pos="1"] .podium-pos { color: #ffd54f; }
+.podium-step[data-pos="2"] .podium-pos { color: #cfd6e0; }
+.podium-step[data-pos="3"] .podium-pos { color: #d39562; }
+.podium-driver {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 20px;
+  letter-spacing: -0.005em;
+  text-transform: uppercase;
+  margin-bottom: 2px;
+}
+.podium-team {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  margin-bottom: 10px;
+}
+.podium-time {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+.podium-time .label {
+  display: block;
+  font-size: 9px;
+  letter-spacing: 0.16em;
+  color: var(--text-mute);
+  text-transform: uppercase;
+  margin-bottom: 2px;
+}
+
+.cool-down-stories {
+  margin-top: 18px;
+  padding: 14px 18px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  color: var(--text-dim);
+  line-height: 1.7;
+}
+.cool-down-stories strong {
+  color: var(--text);
+  font-weight: 600;
+}
+
+/* ============================================================ */
+/* QUALIFYING RECAP                                              */
+/* ============================================================ */
+.qualifying-list {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+.qualifying-row {
+  display: grid;
+  grid-template-columns: 56px 1fr 140px;
+  gap: 14px;
+  padding: 12px 18px;
+  align-items: center;
+  border-bottom: 1px solid var(--border);
+  position: relative;
+}
+.qualifying-row::before {
+  content: "";
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 3px;
+  background: var(--team-color, var(--text-mute));
+}
+.qualifying-row:last-child { border-bottom: 0; }
+.qualifying-row.you { background: linear-gradient(90deg, var(--accent-soft), transparent 60%); }
+.qualifying-row.you::before { width: 4px; background: var(--accent); }
+.qualifying-pos {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 22px;
+  text-align: center;
+  letter-spacing: -0.01em;
+}
+.qualifying-driver { display: flex; flex-direction: column; }
+.qualifying-driver .name {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 17px;
+  letter-spacing: -0.005em;
+  text-transform: uppercase;
+}
+.qualifying-driver .team {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-dim);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin-top: 2px;
+}
+.qualifying-time {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 14px;
+  text-align: right;
+  color: var(--text);
+}
+
+/* ============================================================ */
+/* SEASON CALENDAR                                               */
+/* ============================================================ */
+.calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 10px;
+}
+.calendar-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 14px;
+  position: relative;
+  transition: all 0.25s var(--ease-out);
+}
+.calendar-card:hover { border-color: var(--border-strong); transform: translateY(-2px); }
+.calendar-card.next { border-color: var(--accent); background: linear-gradient(180deg, var(--surface) 0%, color-mix(in srgb, var(--accent) 10%, var(--surface)) 100%); }
+.calendar-card.done { opacity: 0.55; }
+.cal-round {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-mute);
+  margin-bottom: 6px;
+}
+.cal-name {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 16px;
+  letter-spacing: -0.005em;
+  text-transform: uppercase;
+  line-height: 1.1;
+  margin-bottom: 6px;
+}
+.cal-loc {
+  font-size: 12px;
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  letter-spacing: 0.04em;
+  margin-bottom: 10px;
+}
+.cal-date {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+  letter-spacing: 0.04em;
+}
+.cal-badge {
+  position: absolute;
+  top: 12px; right: 12px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  padding: 3px 7px;
+  border-radius: 4px;
+  border: 1px solid var(--border-strong);
+  color: var(--text-mute);
+}
+.cal-badge.next { background: var(--accent); color: #fff; border-color: var(--accent); }
+.cal-badge.done { color: var(--text-mute); }
+
+/* ============================================================ */
+/* STANDINGS (drivers + constructors)                            */
+/* ============================================================ */
+.standings {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+.standings-header {
+  display: grid;
+  grid-template-columns: 56px 1fr 80px 90px;
+  gap: 14px;
+  padding: 10px 18px;
+  background: rgba(255,255,255,0.03);
+  border-bottom: 1px solid var(--border);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-mute);
+}
+.standings-header .wins { text-align: right; }
+.standings-header .pts { text-align: right; }
+
+.driver-row {
+  display: grid;
+  grid-template-columns: 56px 1fr 80px 90px;
+  gap: 14px;
+  padding: 12px 18px;
+  align-items: center;
+  border-bottom: 1px solid var(--border);
+  position: relative;
+  opacity: 0;
+  animation: rowIn 0.5s var(--ease-out) both;
+}
+@keyframes rowIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+.driver-row::before {
+  content: "";
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 3px;
+  background: var(--team-color, var(--text-mute));
+}
+.driver-row:last-child { border-bottom: 0; }
+.driver-row.you {
+  background: linear-gradient(90deg, var(--accent-soft), transparent 60%);
+}
+.driver-row.you::before { width: 4px; background: var(--accent); }
+.driver-pos {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 22px;
+  text-align: center;
+  letter-spacing: -0.01em;
+}
+.driver-info { display: flex; flex-direction: column; }
+.driver-info .name {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 17px;
+  letter-spacing: -0.005em;
+  text-transform: uppercase;
+}
+.driver-info .team {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-dim);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin-top: 2px;
+}
+.driver-wins, .driver-pts {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 14px;
+  text-align: right;
+}
+.driver-pts {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 20px;
+}
+
+.constructor-row {
+  display: grid;
+  grid-template-columns: 56px 1fr 90px;
+  gap: 14px;
+  padding: 12px 18px;
+  align-items: center;
+  border-bottom: 1px solid var(--border);
+  position: relative;
+  opacity: 0;
+  animation: rowIn 0.5s var(--ease-out) both;
+}
+.constructor-row::before {
+  content: "";
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 3px;
+  background: var(--team-color, var(--text-mute));
+}
+.constructor-row:last-child { border-bottom: 0; }
+.constructor-row .driver-info .name { font-size: 16px; }
+
+/* ============================================================ */
+/* YOUR DRIVER PANEL                                             */
+/* ============================================================ */
+.your-driver-panel {
+  background: linear-gradient(135deg, var(--surface) 0%, color-mix(in srgb, var(--accent) 14%, var(--surface)) 100%);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  padding: clamp(20px, 4vw, 36px);
+  position: relative;
+  overflow: hidden;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 32px;
+  align-items: center;
+}
+.your-driver-panel::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at 100% 50%, var(--accent-glow), transparent 50%);
+  pointer-events: none;
+  opacity: 0.7;
+}
+.your-driver-panel > * { position: relative; z-index: 1; }
+.yd-eyebrow {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--text-mute);
+  margin-bottom: 12px;
+}
+.yd-nickname {
+  font-family: var(--font-serif);
+  font-style: italic;
+  font-size: clamp(20px, 3vw, 32px);
+  color: var(--accent);
+  margin-bottom: 4px;
+  line-height: 1.1;
+}
+.yd-name {
+  font-family: var(--font-display);
+  font-weight: 900;
+  font-size: clamp(40px, 7vw, 72px);
+  line-height: 0.95;
+  letter-spacing: -0.02em;
+  text-transform: uppercase;
+  margin-bottom: 6px;
+}
+.yd-team {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  margin-bottom: 24px;
+}
+.yd-stats {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 14px;
+  margin-bottom: 24px;
+}
+.yd-stat {
+  background: rgba(0,0,0,0.35);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 14px;
+}
+.yd-stat-label {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--text-mute);
+  margin-bottom: 6px;
+}
+.yd-stat-value {
+  font-family: var(--font-display);
+  font-weight: 900;
+  font-size: clamp(28px, 4vw, 42px);
+  line-height: 1;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+.yd-form-title {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--text-mute);
+  margin-bottom: 10px;
+}
+.yd-form {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.form-chip {
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  font-variant-numeric: tabular-nums;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+}
+.form-chip.win { background: var(--accent); color: #fff; border-color: var(--accent); }
+.form-chip.podium { background: var(--accent-soft); color: var(--text); border-color: var(--accent); }
+.form-chip.points { color: var(--text); border-color: var(--border-strong); }
+.form-chip-label {
+  font-size: 9px;
+  color: var(--text-mute);
+  margin-left: 4px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+/* ============================================================ */
+/* CHAMPIONSHIP WORM PLOT                                        */
+/* ============================================================ */
+.worm-plot {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: clamp(16px, 3vw, 28px);
+  overflow: hidden;
+}
+.worm-svg {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+.worm-svg .grid-line { stroke: var(--border); stroke-width: 1; stroke-dasharray: 2 4; }
+.worm-svg .axis-label {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  fill: var(--text-mute);
+  text-transform: uppercase;
+}
+.worm-svg .worm {
+  fill: none;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+  transition: opacity 0.3s, stroke-width 0.3s;
+}
+.worm-svg .worm-other {
+  stroke-width: 1.5;
+  opacity: 0.3;
+}
+.worm-svg .worm-you {
+  stroke-width: 3;
+  opacity: 1;
+  filter: drop-shadow(0 0 6px var(--accent-glow));
+}
+.worm-svg .worm-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.worm-svg .worm-label-you {
+  font-size: 12px;
+  font-weight: 700;
+  fill: var(--accent);
+}
+.worm-legend {
+  margin-top: 16px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-mute);
+  flex-wrap: wrap;
+}
+.worm-legend .legend-line {
+  display: inline-block;
+  width: 18px;
+  height: 3px;
+  background: var(--accent);
+  vertical-align: middle;
+  margin-right: 6px;
+  border-radius: 2px;
+}
+.worm-legend .legend-line.other {
+  background: var(--text-mute);
+  height: 1.5px;
+  opacity: 0.5;
+}
+
+/* Hero (stubbed for now — full version in Phase 4) */
+.hero {
+  padding: 64px 0 32px;
+}
+.greeting {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--text-mute);
+  margin-bottom: 16px;
+  animation: fadeUp 0.7s var(--ease-out) 0.1s both;
+}
+.hero h1 {
+  font-family: var(--font-display);
+  font-weight: 900;
+  font-size: clamp(56px, 12vw, 160px);
+  line-height: 0.88;
+  letter-spacing: -0.02em;
+  text-transform: uppercase;
+  margin-bottom: 24px;
+}
+.hero h1 .hero-word {
+  display: inline-block;
+  animation: heroWord 0.9s var(--ease-out) both;
+}
+.hero h1 .hero-word:nth-child(1) { animation-delay: 0.25s; }
+.hero h1 .hero-word:nth-child(2) { animation-delay: 0.4s; }
+@keyframes heroWord {
+  from { opacity: 0; transform: translateY(40px) skewY(4deg); }
+  to   { opacity: 1; transform: translateY(0) skewY(0); }
+}
+.hero-tags {
+  color: var(--text-dim);
+  font-size: 13px;
+  font-family: var(--font-mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  animation: fadeUp 0.7s var(--ease-out) 0.5s both;
+}
+
+footer {
+  border-top: 1px solid var(--border);
+  margin-top: 80px;
+  padding: 48px var(--pad) 40px;
+  background: var(--bg-elev);
+  position: relative;
+  z-index: 1;
+}
+.footer-inner { max-width: var(--max); margin: 0 auto; }
+.footer-brand {
+  font-family: var(--font-display);
+  font-size: 28px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: -0.01em;
+  margin-bottom: 4px;
+}
+.footer-version {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-mute);
+  letter-spacing: 0.14em;
+  margin-bottom: 24px;
+}
+.footer-attribution, .footer-disclaimer {
+  font-size: 12px;
+  color: var(--text-dim);
+  max-width: 640px;
+  margin-bottom: 12px;
+  line-height: 1.6;
+}
+.footer-tag {
+  font-family: var(--font-display);
+  font-size: 14px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-mute);
+  margin-top: 32px;
+  padding-top: 24px;
+  border-top: 1px solid var(--border);
+}
+
+/* ============================================================ */
+/* RESPONSIVE                                                    */
+/* ============================================================ */
+@media (max-width: 600px) {
+  .topbar { gap: 12px; }
+  .brand-sub { display: none; }
+  .live-status .live-text { display: none; }
+  .driver-grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+</style>
+</head>
+<body>
+
+<!-- ============================================================ -->
+<!-- WELCOME SCREEN — F1 5-light start sequence                   -->
+<!-- ============================================================ -->
+<div class="welcome" id="welcome">
+  <div class="welcome-eyebrow">F1 · 2026 · live edition</div>
+  <h1 class="welcome-brand">The <em>Pit Wall</em></h1>
+  <div class="welcome-sub">your trackside HQ · personalised</div>
+
+  <div class="lights-rig" id="lightsRig" aria-hidden="true">
+    <div class="light"></div>
+    <div class="light"></div>
+    <div class="light"></div>
+    <div class="light"></div>
+    <div class="light"></div>
+  </div>
+
+  <div class="welcome-status" id="welcomeStatus">Starting procedure…</div>
+  <div class="welcome-go-text" id="welcomeGoText">Lights out and away we go</div>
+  <button class="welcome-enter" id="welcomeEnter">Enter the paddock →</button>
+
+  <div class="welcome-slang" id="welcomeSlang">"It's hammer time"</div>
+  <button class="welcome-skip" id="welcomeSkip">tap anywhere to skip</button>
+</div>
+
+<!-- ============================================================ -->
+<!-- ONBOARDING — name + driver pick                              -->
+<!-- ============================================================ -->
+<div class="onboarding hidden" id="onboarding">
+  <div class="onboarding-inner">
+    <div class="onboarding-step active" data-step="1">
+      <div class="step-label">01 / 02 · the byline</div>
+      <h2>Sign your <em>name</em></h2>
+      <p class="lede">Your name lives on the dashboard — greeting, hero, footer. Quiet, never loud.</p>
+      <input type="text" id="nameInput" placeholder="Your first name" maxlength="20" autocomplete="off" />
+      <div class="onboarding-actions">
+        <button class="btn-primary" id="nameNext" disabled>continue ›</button>
+      </div>
+    </div>
+
+    <div class="onboarding-step" data-step="2">
+      <div class="step-label">02 / 02 · pick your wingman</div>
+      <h2>Pick your <em>driver</em></h2>
+      <p class="lede">Their team colour rides shotgun across the dashboard. You'll see them first, every time.</p>
+      <div class="driver-grid" id="driverGrid">
+        <div class="empty-state">Loading drivers…</div>
+      </div>
+      <div class="scroll-hint">scroll · tap a card to lock your colour</div>
+      <div class="onboarding-actions">
+        <button class="btn-ghost" id="driverBack">‹ back</button>
+        <button class="btn-primary" id="driverConfirm" disabled>confirm driver ›</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- TOPBAR + MARQUEE                                              -->
+<!-- ============================================================ -->
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-mark"></span>
+    <span class="brand-name">Pit Wall</span>
+    <span class="brand-sub">F1 · 2026</span>
+  </div>
+  <div class="live-status">
+    <span class="live-dot"></span>
+    <span class="live-text">updated <span id="updatedAgo">just now</span></span>
+  </div>
+  <button class="btn-edit-profile" id="editProfile" title="Edit name and driver">/ edit profile</button>
+</header>
+
+<div class="marquee">
+  <div class="marquee-track">
+    <span>Pit Wall · F1 2026 · Lights out and away we go</span><span class="dot">●</span>
+    <span>Pit Wall · F1 2026 · Lights out and away we go</span><span class="dot">●</span>
+    <span>Pit Wall · F1 2026 · Lights out and away we go</span><span class="dot">●</span>
+    <span>Pit Wall · F1 2026 · Lights out and away we go</span><span class="dot">●</span>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- MAIN — hero + all dashboard sections (Phases 4-6)             -->
+<!-- ============================================================ -->
+<main>
+  <section class="hero">
+    <div class="greeting" id="greeting">Good morning</div>
+    <h1 id="heroHeading">
+      <span class="hero-word" id="hwName">Your</span>
+      <em class="hero-word">Pit Wall</em>
+    </h1>
+    <p class="hero-tags">Live · Drivers · Constructors · Paddock · Calendar</p>
+    <!-- Race card slot: weekday-mode next-race-card OR race-weekend-card -->
+    <div id="raceHeroSlot">
+      <div class="next-race-card">
+        <div class="race-header">
+          <div>
+            <div class="race-round">Loading…</div>
+            <div class="race-name">Loading next race</div>
+            <div class="race-circuit">—</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- § 01 · Cool-Down Lap -->
+  <section class="block" id="block-cool-down">
+    <div class="block-head">
+      <span class="block-num">01</span>
+      <h2 class="block-title">The Cool-Down <em>Lap</em></h2>
+      <span class="block-sub">last race recap</span>
+    </div>
+    <div id="podium-container">
+      <div class="block-loading">Loading podium…</div>
+    </div>
+    <div id="cool-down-stories" class="cool-down-stories" style="display:none"></div>
+  </section>
+
+  <!-- § 02 · Qualifying Recap -->
+  <section class="block" id="block-qualifying">
+    <div class="block-head">
+      <span class="block-num">02</span>
+      <h2 class="block-title">Qualifying <em>Recap</em></h2>
+      <span class="block-sub">last quali · top 10</span>
+    </div>
+    <div id="qualifying-container">
+      <div class="block-loading">Loading qualifying…</div>
+    </div>
+  </section>
+
+  <!-- § 03 · Season Calendar -->
+  <section class="block" id="block-calendar">
+    <div class="block-head">
+      <span class="block-num">03</span>
+      <h2 class="block-title">Season <em>Calendar</em></h2>
+      <span class="block-sub">every round · this season</span>
+    </div>
+    <div id="calendar-container" class="calendar-grid">
+      <div class="block-loading">Loading calendar…</div>
+    </div>
+  </section>
+
+  <!-- § 04 · Drivers' Championship -->
+  <section class="block" id="block-drivers">
+    <div class="block-head">
+      <span class="block-num">04</span>
+      <h2 class="block-title">Drivers' <em>Championship</em></h2>
+      <span class="block-sub">top 10</span>
+    </div>
+    <div id="drivers-container">
+      <div class="block-loading">Loading standings…</div>
+    </div>
+  </section>
+
+  <!-- § 05 · Constructors' Cup -->
+  <section class="block" id="block-constructors">
+    <div class="block-head">
+      <span class="block-num">05</span>
+      <h2 class="block-title">Constructors' <em>Cup</em></h2>
+      <span class="block-sub">all teams</span>
+    </div>
+    <div id="constructors-container">
+      <div class="block-loading">Loading constructors…</div>
+    </div>
+  </section>
+
+  <!-- § 06 · Your Driver -->
+  <section class="block" id="block-your-driver">
+    <div class="block-head">
+      <span class="block-num">06</span>
+      <h2 class="block-title">Your <em>Driver</em></h2>
+      <span class="block-sub">career · form · season</span>
+    </div>
+    <div id="your-driver-container">
+      <div class="block-loading">Loading your driver…</div>
+    </div>
+  </section>
+
+  <!-- § 07 · Championship Worm Plot -->
+  <section class="block" id="block-worm">
+    <div class="block-head">
+      <span class="block-num">07</span>
+      <h2 class="block-title">Championship <em>Worm</em></h2>
+      <span class="block-sub">cumulative points · round by round</span>
+    </div>
+    <div id="worm-container" class="worm-plot">
+      <div class="block-loading">Calculating championship trajectory…</div>
+    </div>
+  </section>
+</main>
+
+<!-- ============================================================ -->
+<!-- FOOTER                                                        -->
+<!-- ============================================================ -->
+<footer>
+  <div class="footer-inner">
+    <div class="footer-brand">The <em>Pit Wall</em></div>
+    <div class="footer-version">F1 2026 · build v2-phase3 · personal edition</div>
+    <p class="footer-attribution">Inspired by Anirudh Goel's "The Pit Wall." Personalised for <strong><span id="userNameFooter">you</span></strong>.</p>
+    <p class="footer-disclaimer">An unofficial fan project. Not affiliated with, endorsed by or associated with Formula 1, the FIA, FOM or any team. Driver and team names used for identification only.</p>
+    <div class="footer-tag">Lights out and away we go</div>
+  </div>
+</footer>
+
+<!-- ============================================================ -->
+<!-- SCRIPT — Phase 2 (welcome/onboarding) + Phase 3 (data layer) -->
+<!-- ============================================================ -->
+<script>
+"use strict";
+
+/* ============================================================ */
+/* CONSTANTS                                                     */
+/* ============================================================ */
+const JOLPICA_PREFIX = "https://api.jolpi.ca/ergast/f1/";
+const OPENF1_PREFIX  = "https://api.openf1.org/v1/";
+const JOLPICA = "https://api.jolpi.ca/ergast/f1";
+const OPENF1  = "https://api.openf1.org/v1";
+
+const STORAGE_PROFILE = "pitwall.profile.v2";
+const STORAGE_WELCOME = "pitwall.welcome.v2";
+const CACHE_PREFIX    = "pitwall.cache.v1.";
+const CACHE_FRESH_MS  = 5 * 60 * 1000;       // 5 min — "fresh," skip network
+const CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000; // 24 h — usable as fallback
+
+const FALLBACK_SEASON = "2025";
+
+/* Constructor → primary team colour, per 04-uiux-brief.md */
+const TEAM_COLORS = {
+  red_bull:       "#3671C6",
+  ferrari:        "#E8002D",
+  mercedes:       "#27F4D2",
+  mclaren:        "#FF8000",
+  aston_martin:   "#229971",
+  alpine:         "#0093CC",
+  williams:       "#64C4FF",
+  rb:             "#6692FF",
+  racing_bulls:   "#6692FF",
+  alphatauri:     "#5E8FAA",
+  haas:           "#B6BABD",
+  sauber:         "#52E252",
+  kick_sauber:    "#52E252",
+  audi:           "#00FF00",
+  cadillac:       "#C0C0C0",
+  alfa:           "#900000",
+  alfa_romeo:     "#900000",
+};
+
+/* Driver short-name overrides + legendary positive nicknames */
+const DRIVER_INFO = {
+  hamilton:        { short: "L. Hamilton",    nickname: "The Hammer" },
+  max_verstappen:  { short: "M. Verstappen",  nickname: "Super Max" },
+  verstappen:      { short: "M. Verstappen",  nickname: "Super Max" },
+  leclerc:         { short: "C. Leclerc",     nickname: "Il Predestinato" },
+  norris:          { short: "L. Norris",      nickname: "Last Lap Lando" },
+  piastri:         { short: "O. Piastri",     nickname: "Cool Hand Oscar" },
+  russell:         { short: "G. Russell",     nickname: "Mr. Saturday" },
+  sainz:           { short: "C. Sainz",       nickname: "Smooth Operator" },
+  alonso:          { short: "F. Alonso",      nickname: "El Plan" },
+  stroll:          { short: "L. Stroll",      nickname: "The Canadian" },
+  gasly:           { short: "P. Gasly",       nickname: "Le Bro" },
+  ocon:            { short: "E. Ocon",        nickname: "Estie Boy" },
+  tsunoda:         { short: "Y. Tsunoda",     nickname: "Yuki the Tornado" },
+  albon:           { short: "A. Albon",       nickname: "Mr. Nice Guy" },
+  hulkenberg:      { short: "N. Hülkenberg",  nickname: "The Hulk" },
+  bearman:         { short: "O. Bearman",     nickname: "The Bear" },
+  antonelli:       { short: "K. Antonelli",   nickname: "The Wunderkind" },
+  kimi_antonelli:  { short: "K. Antonelli",   nickname: "The Wunderkind" },
+  lawson:          { short: "L. Lawson",      nickname: "The Kiwi" },
+  hadjar:          { short: "I. Hadjar",      nickname: "The Rookie Rocket" },
+  bortoleto:       { short: "G. Bortoleto",   nickname: "The Champ" },
+  colapinto:       { short: "F. Colapinto",   nickname: "The Maverick" },
+  doohan:          { short: "J. Doohan",      nickname: "Aussie Jack" },
+  perez:           { short: "S. Pérez",       nickname: "Checo" },
+  bottas:          { short: "V. Bottas",      nickname: "Bono's Hero" },
+  zhou:            { short: "G. Zhou",        nickname: "The Pioneer" },
+  magnussen:       { short: "K. Magnussen",   nickname: "K-Mag" },
+  ricciardo:       { short: "D. Ricciardo",   nickname: "Honey Badger" },
+};
+
+const SLANG = [
+  "It's hammer time",
+  "Box, box, box",
+  "P1, baby!",
+  "Mate, that was insane",
+  "Get in there, Lewis",
+  "We are checking, we are checking",
+  "Smooth operator",
+  "Now is not the time, Toto",
+  "Yeah baby, P1",
+  "Simply lovely",
+];
+
+/* ============================================================ */
+/* STATE                                                         */
+/* ============================================================ */
+const state = {
+  profile: null,                            // { name, driverId, ... } from localStorage
+  drivers: [],                              // current driver standings rows
+  selectedDriverDuringOnboarding: null,
+};
+
+let welcomeFinished = false;
+
+/* ============================================================ */
+/* HELPERS                                                       */
+/* ============================================================ */
+const $  = (s) => document.querySelector(s);
+const $$ = (s) => document.querySelectorAll(s);
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+function colorForConstructor(id) {
+  if (TEAM_COLORS[id]) return TEAM_COLORS[id];
+  // hash-derived fallback so unknown teams don't break
+  let h = 0;
+  for (let i = 0; i < (id || "x").length; i++) h = (h * 31 + id.charCodeAt(i)) | 0;
+  return `hsl(${Math.abs(h) % 360}, 60%, 55%)`;
+}
+
+function setAccent(color) {
+  document.documentElement.style.setProperty("--accent", color);
+  document.documentElement.style.setProperty("--accent-soft", `${color}22`);
+  document.documentElement.style.setProperty("--accent-glow", `${color}55`);
+}
+
+function driverShortName(driver) {
+  if (!driver) return "—";
+  const info = DRIVER_INFO[driver.driverId];
+  if (info?.short) return info.short;
+  const initial = driver.givenName?.[0] || "";
+  return `${initial}. ${driver.familyName || ""}`;
+}
+function driverNickname(driver) {
+  return DRIVER_INFO[driver?.driverId]?.nickname || null;
+}
+
+function greetingFor(name) {
+  const h = new Date().getHours();
+  const part = h < 5 ? "Late night"
+             : h < 12 ? "Good morning"
+             : h < 17 ? "Good afternoon"
+             : h < 21 ? "Good evening"
+             : "Late night";
+  return `${part}${name ? `, ${name.toLowerCase()}` : ""}`;
+}
+
+function escapeHtml(s) {
+  if (s == null) return "";
+  return String(s)
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+const escapeAttr = escapeHtml;
+
+/* ============================================================ */
+/* DATA LAYER — Phase 3                                          */
+/*   • localStorage cache (fresh < 5 min, usable < 24 h)         */
+/*   • Multi-source proxy chain                                  */
+/*   • Direct fetch for CORS-enabled APIs (Open-Meteo, OpenF1)   */
+/* ============================================================ */
+function cacheGet(url) {
+  try {
+    const raw = localStorage.getItem(CACHE_PREFIX + url);
+    if (!raw) return null;
+    const obj = JSON.parse(raw);
+    if (Date.now() - obj.ts > CACHE_MAX_AGE_MS) return null;
+    return obj;
+  } catch { return null; }
+}
+function cacheSet(url, data) {
+  try { localStorage.setItem(CACHE_PREFIX + url, JSON.stringify({ ts: Date.now(), data })); }
+  catch { /* localStorage may be full or disabled */ }
+}
+
+/**
+ * Universal JSON fetcher with proxy chain + cache.
+ *
+ * Routing per URL:
+ *   • Jolpica URLs → /api/jolpica → public proxies → cache
+ *   • OpenF1 URLs  → /api/openf1  → direct (CORS) → cache
+ *   • Any other    → direct fetch (Open-Meteo, etc.)
+ */
+async function fetchJSON(url, opts = {}) {
+  // Non-proxied APIs: just fetch and (optionally) cache
+  if (!url.startsWith(JOLPICA_PREFIX) && !url.startsWith(OPENF1_PREFIX)) {
+    const r = await fetch(url, { cache: "no-store", ...opts });
+    if (!r.ok) throw new Error(`HTTP ${r.status} on ${url}`);
+    return r.json();
+  }
+
+  // Fresh-cache shortcut
+  const cached = cacheGet(url);
+  if (cached && Date.now() - cached.ts < CACHE_FRESH_MS) return cached.data;
+
+  // Build the source list per upstream
+  const encoded = encodeURIComponent(url);
+  let sources;
+  if (url.startsWith(JOLPICA_PREFIX)) {
+    sources = [
+      `/api/jolpica?url=${encoded}`,                          // own serverless function
+      `https://api.allorigins.win/raw?url=${encoded}`,        // public proxy 1
+      `https://api.cors.lol/?url=${encoded}`,                 // public proxy 2
+      `https://thingproxy.freeboard.io/fetch/${url}`,         // public proxy 3 (raw URL appended)
+    ];
+  } else {
+    sources = [
+      `/api/openf1?url=${encoded}`,                           // own serverless function
+      url,                                                    // direct — OpenF1 has CORS
+    ];
+  }
+
+  let lastError = null;
+  for (const src of sources) {
+    try {
+      const r = await fetch(src, { cache: "no-store", ...opts });
+      if (r.ok) {
+        const data = await r.json();
+        cacheSet(url, data);
+        return data;
+      }
+      lastError = new Error(`HTTP ${r.status} via ${src.split("?")[0]}`);
+    } catch (e) {
+      lastError = e;
+    }
+  }
+
+  // All sources failed — serve stale cache if we have it
+  if (cached) {
+    console.warn(`Proxies failed for ${url} — serving stale cache from ${new Date(cached.ts).toLocaleTimeString()}`);
+    return cached.data;
+  }
+  console.error(`Cannot reach upstream for ${url}. If running locally with python http.server, deploy to Vercel to use the /api/* serverless functions.`);
+  throw lastError || new Error(`All sources failed for ${url}`);
+}
+
+/* ============================================================ */
+/* JOLPICA FETCHERS — with season fallback                       */
+/* (More will be added in Phase 4)                               */
+/* ============================================================ */
+async function getDriverStandings() {
+  try {
+    const j = await fetchJSON(`${JOLPICA}/current/driverStandings.json`);
+    const list = j?.MRData?.StandingsTable?.StandingsLists?.[0]?.DriverStandings || [];
+    if (list.length) return list;
+  } catch (e) { console.warn("Driver standings (current) failed", e); }
+  try {
+    const j = await fetchJSON(`${JOLPICA}/${FALLBACK_SEASON}/driverStandings.json`);
+    return j?.MRData?.StandingsTable?.StandingsLists?.[0]?.DriverStandings || [];
+  } catch (e) { console.warn("Driver standings (fallback) failed", e); return []; }
+}
+
+/* ============================================================ */
+/* PROFILE — Phase 2                                             */
+/* ============================================================ */
+function loadProfile() {
+  try {
+    const raw = localStorage.getItem(STORAGE_PROFILE);
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch { return null; }
+}
+function saveProfile(p) {
+  try { localStorage.setItem(STORAGE_PROFILE, JSON.stringify(p)); }
+  catch { console.warn("localStorage unavailable — profile won't persist this session"); }
+}
+function applyProfile() {
+  if (!state.profile) return;
+  $("#greeting").textContent = greetingFor(state.profile.name);
+  $("#hwName").textContent = `${state.profile.name}'s`;
+  $("#userNameFooter").textContent = state.profile.name;
+  if (state.profile.color) setAccent(state.profile.color);
+}
+
+/* ============================================================ */
+/* WELCOME SCREEN — Phase 2                                      */
+/* ============================================================ */
+async function runWelcome() {
+  $("#welcomeSlang").textContent = `"${SLANG[Math.floor(Math.random() * SLANG.length)]}"`;
+
+  const hasSeen = !!localStorage.getItem(STORAGE_WELCOME);
+  const isReturning = hasSeen && !!state.profile;
+
+  if (isReturning) {
+    // Quick "welcome back" flash for returning visitors
+    $("#welcomeStatus").textContent = `Welcome back, ${state.profile.name}`;
+    $("#welcomeStatus").classList.add("go");
+    $("#welcomeGoText").classList.add("visible");
+    await sleep(1400);
+    closeWelcome();
+    return;
+  }
+
+  // Full 5-lights sequence for first-time visitors
+  const lights = $$(".light");
+  $("#welcomeStatus").textContent = "Starting procedure…";
+  await sleep(900);
+  $("#welcomeStatus").textContent = "Formation lap complete";
+  await sleep(600);
+  $("#welcomeStatus").textContent = "Lights on the gantry";
+  await sleep(700);
+
+  for (let i = 0; i < lights.length; i++) {
+    if (welcomeFinished) return;
+    lights[i].classList.add("on");
+    await sleep(950);
+  }
+  if (welcomeFinished) return;
+
+  // Random gap before lights out — just like a real F1 start
+  await sleep(300 + Math.random() * 1500);
+  if (welcomeFinished) return;
+
+  lights.forEach((l) => l.classList.remove("on"));
+  $("#welcomeStatus").textContent = "GO GO GO";
+  $("#welcomeStatus").classList.add("go");
+  $("#welcomeGoText").classList.add("visible");
+  await sleep(500);
+  $("#welcomeEnter").classList.add("visible");
+  localStorage.setItem(STORAGE_WELCOME, "1");
+}
+
+function closeWelcome() {
+  welcomeFinished = true;
+  $("#welcome").classList.add("hidden");
+  if (!state.profile) {
+    $("#onboarding").classList.remove("hidden");
+  }
+}
+
+function bindWelcome() {
+  $("#welcomeEnter").addEventListener("click", closeWelcome);
+  $("#welcomeSkip").addEventListener("click", closeWelcome);
+  // Tap-anywhere-to-skip after a small grace period
+  setTimeout(() => {
+    $("#welcome").addEventListener("click", (e) => {
+      if (e.target.id === "welcomeEnter" || e.target.id === "welcomeSkip") return;
+      closeWelcome();
+    });
+  }, 800);
+}
+
+/* ============================================================ */
+/* ONBOARDING — Phase 2                                          */
+/* ============================================================ */
+function openOnboarding(includeStep1 = true) {
+  $("#onboarding").classList.remove("hidden");
+  showStep(includeStep1 ? 1 : 2);
+}
+function showStep(n) {
+  $$(".onboarding-step").forEach((el) => el.classList.remove("active"));
+  $(`.onboarding-step[data-step="${n}"]`).classList.add("active");
+  if (n === 2) populateDriverGrid();
+}
+function closeOnboarding() {
+  $("#onboarding").classList.add("hidden");
+}
+
+function populateDriverGrid() {
+  const grid = $("#driverGrid");
+  const rows = state.drivers;
+  if (!rows.length) {
+    grid.innerHTML = `
+      <div class="empty-state">
+        <strong>Driver list unavailable.</strong><br /><br />
+        Jolpica F1's API doesn't allow direct browser access (no CORS headers). The dashboard normally proxies through the included <code>/api/jolpica</code> Vercel function — once you deploy, this will work automatically.<br /><br />
+        If you're testing locally with <code>python -m http.server</code>, public CORS proxies are being tried as a fallback. Open the browser console to see which proxy is failing.<br /><br />
+        You can skip this step and pick a driver later via <code>/ edit profile</code>.
+      </div>`;
+    $("#driverConfirm").disabled = false;
+    $("#driverConfirm").textContent = "skip ›";
+    return;
+  }
+
+  grid.innerHTML = rows
+    .map((s, i) => {
+      const color = colorForConstructor(s.Constructors?.[0]?.constructorId);
+      const did = s.Driver?.driverId;
+      const nick = driverNickname(s.Driver) || s.Constructors?.[0]?.name || "";
+      const short = driverShortName(s.Driver);
+      return `
+        <button class="driver-card"
+                data-driver-id="${escapeAttr(did)}"
+                data-team-color="${color}"
+                data-team-name="${escapeAttr(s.Constructors?.[0]?.name || "")}"
+                data-code="${escapeAttr(s.Driver?.code || "")}"
+                data-number="${escapeAttr(s.Driver?.permanentNumber || "")}"
+                data-given="${escapeAttr(s.Driver?.givenName || "")}"
+                data-family="${escapeAttr(s.Driver?.familyName || "")}"
+                data-nickname="${escapeAttr(driverNickname(s.Driver) || "")}"
+                style="--team-color:${color}; animation-delay:${(i * 0.04).toFixed(2)}s">
+          <div class="dc-nick">"${escapeHtml(nick)}"</div>
+          <div class="dc-name">${escapeHtml(short)}</div>
+          <div class="dc-team">${escapeHtml(s.Constructors?.[0]?.name || "")}</div>
+        </button>`;
+    })
+    .join("");
+
+  grid.querySelectorAll(".driver-card").forEach((card) => {
+    card.addEventListener("click", () => {
+      grid.querySelectorAll(".driver-card").forEach((c) => c.classList.remove("selected"));
+      card.classList.add("selected");
+      state.selectedDriverDuringOnboarding = {
+        driverId:   card.dataset.driverId,
+        driverCode: card.dataset.code,
+        number:     card.dataset.number,
+        givenName:  card.dataset.given,
+        familyName: card.dataset.family,
+        team:       card.dataset.teamName,
+        color:      card.dataset.teamColor,
+        nickname:   card.dataset.nickname,
+      };
+      setAccent(card.dataset.teamColor);  // live-preview the accent
+      $("#driverConfirm").disabled = false;
+    });
+  });
+}
+
+function bindOnboarding() {
+  $("#nameInput").addEventListener("input", (e) => {
+    $("#nameNext").disabled = e.target.value.trim().length < 1;
+  });
+  $("#nameInput").addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !$("#nameNext").disabled) $("#nameNext").click();
+  });
+  $("#nameNext").addEventListener("click", () => {
+    state.profile = { ...(state.profile || {}), name: $("#nameInput").value.trim() };
+    showStep(2);
+  });
+  $("#driverBack").addEventListener("click", () => showStep(1));
+  $("#driverConfirm").addEventListener("click", () => {
+    if (state.selectedDriverDuringOnboarding) {
+      state.profile = { ...state.profile, ...state.selectedDriverDuringOnboarding };
+    }
+    saveProfile(state.profile);
+    applyProfile();
+    closeOnboarding();
+    // Trigger a full dashboard reload now that the team accent + driver have changed
+    window.dispatchEvent(new Event('pitwall:profile-changed'));
+  });
+
+  $("#editProfile").addEventListener("click", () => {
+    if (state.profile?.name) $("#nameInput").value = state.profile.name;
+    $("#nameNext").disabled = !state.profile?.name;
+    openOnboarding(true);
+  });
+}
+
+/* ============================================================ */
+/* MOUSE-FOLLOW ACCENT GLOW — Phase 7 polish, but cheap to add   */
+/* ============================================================ */
+function bindMouseGlow() {
+  if (matchMedia("(pointer: coarse)").matches) return; // skip on touch
+  let raf = null;
+  document.addEventListener("mousemove", (e) => {
+    if (raf) return;
+    raf = requestAnimationFrame(() => {
+      document.documentElement.style.setProperty("--mx", `${(e.clientX / window.innerWidth) * 100}%`);
+      document.documentElement.style.setProperty("--my", `${(e.clientY / window.innerHeight) * 100}%`);
+      raf = null;
+    });
+  });
+}
+
+/* ============================================================ */
+/* ADDITIONAL FETCHERS — Phase 4                                 */
+/* ============================================================ */
+async function getSchedule() {
+  try {
+    const j = await fetchJSON(`${JOLPICA}/current.json?limit=100`);
+    const races = j?.MRData?.RaceTable?.Races || [];
+    if (races.length) return races;
+  } catch (e) { console.warn("Schedule (current) failed", e); }
+  try {
+    const j = await fetchJSON(`${JOLPICA}/${FALLBACK_SEASON}.json?limit=100`);
+    return j?.MRData?.RaceTable?.Races || [];
+  } catch (e) { console.warn("Schedule (fallback) failed", e); return []; }
+}
+
+async function getConstructorStandings() {
+  try {
+    const j = await fetchJSON(`${JOLPICA}/current/constructorStandings.json`);
+    const list = j?.MRData?.StandingsTable?.StandingsLists?.[0]?.ConstructorStandings || [];
+    if (list.length) return list;
+  } catch (e) { console.warn("Constructor standings (current) failed", e); }
+  try {
+    const j = await fetchJSON(`${JOLPICA}/${FALLBACK_SEASON}/constructorStandings.json`);
+    return j?.MRData?.StandingsTable?.StandingsLists?.[0]?.ConstructorStandings || [];
+  } catch (e) { console.warn("Constructor standings (fallback) failed", e); return []; }
+}
+
+async function getLastResults() {
+  try {
+    const j = await fetchJSON(`${JOLPICA}/current/last/results.json`);
+    const race = j?.MRData?.RaceTable?.Races?.[0];
+    if (race) return race;
+  } catch (e) { console.warn("Last results (current) failed", e); }
+  try {
+    const j = await fetchJSON(`${JOLPICA}/${FALLBACK_SEASON}/last/results.json`);
+    return j?.MRData?.RaceTable?.Races?.[0] || null;
+  } catch (e) { console.warn("Last results (fallback) failed", e); return null; }
+}
+
+async function getLastQualifying() {
+  try {
+    const j = await fetchJSON(`${JOLPICA}/current/last/qualifying.json`);
+    const race = j?.MRData?.RaceTable?.Races?.[0];
+    if (race) return race;
+  } catch (e) { console.warn("Last qualifying (current) failed", e); }
+  try {
+    const j = await fetchJSON(`${JOLPICA}/${FALLBACK_SEASON}/last/qualifying.json`);
+    return j?.MRData?.RaceTable?.Races?.[0] || null;
+  } catch (e) { console.warn("Last qualifying (fallback) failed", e); return null; }
+}
+
+async function getDriverCareerWins(driverId) {
+  try {
+    const j = await fetchJSON(`${JOLPICA}/drivers/${driverId}/results/1.json?limit=1`);
+    return Number(j?.MRData?.total) || 0;
+  } catch { return 0; }
+}
+
+async function getDriverCareerPoles(driverId) {
+  try {
+    const j = await fetchJSON(`${JOLPICA}/drivers/${driverId}/qualifying/1.json?limit=1`);
+    return Number(j?.MRData?.total) || 0;
+  } catch { return 0; }
+}
+
+async function getDriverRecentResults(driverId, count = 5) {
+  try {
+    const j = await fetchJSON(`${JOLPICA}/current/drivers/${driverId}/results.json?limit=${count}`);
+    const races = j?.MRData?.RaceTable?.Races || [];
+    if (races.length) return races.slice(-count);
+    const j2 = await fetchJSON(`${JOLPICA}/${FALLBACK_SEASON}/drivers/${driverId}/results.json?limit=${count}`);
+    return (j2?.MRData?.RaceTable?.Races || []).slice(-count);
+  } catch (e) { console.warn("Recent results failed", e); return []; }
+}
+
+async function getFullSeasonResults(season) {
+  try {
+    const j = await fetchJSON(`${JOLPICA}/${season}/results.json?limit=1000`);
+    return j?.MRData?.RaceTable?.Races || [];
+  } catch (e) { console.warn("Full season results failed", e); return []; }
+}
+
+/* OpenF1 fetchers */
+async function getOpenF1Sessions(year) {
+  try {
+    const data = await fetchJSON(`${OPENF1}/sessions?year=${year}`);
+    return Array.isArray(data) ? data : [];
+  } catch (e) { console.warn("OpenF1 sessions failed", e); return []; }
+}
+async function getOpenF1Drivers(sessionKey) {
+  try {
+    const data = await fetchJSON(`${OPENF1}/drivers?session_key=${sessionKey}`);
+    return Array.isArray(data) ? data : [];
+  } catch (e) { console.warn("OpenF1 drivers failed", e); return []; }
+}
+async function getOpenF1Position(sessionKey) {
+  try {
+    const data = await fetchJSON(`${OPENF1}/position?session_key=${sessionKey}`);
+    return Array.isArray(data) ? data : [];
+  } catch (e) { console.warn("OpenF1 position failed", e); return []; }
+}
+
+/* Weather */
+const WMO_ICONS = {
+  0: "☀️", 1: "🌤️", 2: "⛅", 3: "☁️",
+  45: "🌫️", 48: "🌫️",
+  51: "🌦️", 53: "🌦️", 55: "🌦️", 56: "🌧️", 57: "🌧️",
+  61: "🌧️", 63: "🌧️", 65: "🌧️", 66: "🌧️", 67: "🌧️",
+  71: "❄️", 73: "❄️", 75: "❄️", 77: "❄️",
+  80: "🌧️", 81: "🌧️", 82: "⛈️", 85: "🌨️", 86: "🌨️",
+  95: "⛈️", 96: "⛈️", 99: "⛈️",
+};
+function weatherIcon(code) { return WMO_ICONS[code] || "🌡️"; }
+
+async function getWeekendForecast(lat, lon) {
+  try {
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max,weathercode&timezone=auto&forecast_days=16`;
+    return await fetchJSON(url);
+  } catch (e) { console.warn("Weather failed", e); return null; }
+}
+
+/* ============================================================ */
+/* RACE WEEKEND STATE MACHINE — Phase 5                          */
+/* ============================================================ */
+const TWO_HOURS_MS = 2 * 60 * 60 * 1000;
+
+async function detectWeekendState(schedule) {
+  if (!schedule || !schedule.length) return { state: 'DEFAULT' };
+  const now = Date.now();
+
+  // Find target race (current or next)
+  let targetRace = null;
+  for (const race of schedule) {
+    const raceTime = new Date(`${race.date}T${race.time || '13:00:00Z'}`).getTime();
+    if (raceTime > now - 24 * 60 * 60 * 1000) { targetRace = race; break; }
+  }
+  if (!targetRace) return { state: 'DEFAULT', nextRace: schedule[schedule.length - 1] };
+
+  // Check OpenF1 for sessions matching this race weekend
+  const year = new Date().getFullYear();
+  const sessions = await getOpenF1Sessions(year);
+  if (!sessions.length) return { state: 'DEFAULT', nextRace: targetRace };
+
+  const raceDate = new Date(targetRace.date).getTime();
+  const weekendSessions = sessions.filter(s => {
+    const sStart = new Date(s.date_start).getTime();
+    return Math.abs(sStart - raceDate) <= 5 * 24 * 60 * 60 * 1000;
+  });
+  if (!weekendSessions.length) return { state: 'DEFAULT', nextRace: targetRace };
+
+  // LIVE: a session is currently happening
+  const live = weekendSessions.find(s => {
+    const start = new Date(s.date_start).getTime();
+    const end = new Date(s.date_end).getTime();
+    return now >= start && now <= end;
+  });
+  if (live) return { state: 'LIVE', session: live, nextRace: targetRace };
+
+  // PRE-SESSION: a session starting within 2 hours
+  const upcoming = weekendSessions
+    .filter(s => new Date(s.date_start).getTime() > now)
+    .sort((a, b) => new Date(a.date_start) - new Date(b.date_start))[0];
+  if (upcoming) {
+    const ms = new Date(upcoming.date_start).getTime() - now;
+    if (ms <= TWO_HOURS_MS) {
+      return { state: 'PRE-SESSION', session: upcoming, nextRace: targetRace };
+    }
+  }
+  return { state: 'DEFAULT', nextRace: targetRace };
+}
+
+/* ============================================================ */
+/* COUNTDOWN + HERO RENDERERS                                    */
+/* ============================================================ */
+let countdownTimer = null;
+let liveRefreshTimer = null;
+let currentSessionKey = null;
+
+function clearCountdown() { if (countdownTimer) { clearInterval(countdownTimer); countdownTimer = null; } }
+function stopLiveRefresh() { if (liveRefreshTimer) { clearInterval(liveRefreshTimer); liveRefreshTimer = null; } currentSessionKey = null; }
+
+function renderNextRaceCard(race, forecastData) {
+  const slot = document.getElementById('raceHeroSlot');
+  if (!race) {
+    slot.innerHTML = `<div class="next-race-card"><div class="block-empty">Season hasn't started yet.</div></div>`;
+    return;
+  }
+  const raceTimeISO = `${race.date}T${race.time || '13:00:00Z'}`;
+  const raceDate = new Date(raceTimeISO);
+  const dateLabel = raceDate.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+
+  const friISO = race.FirstPractice?.date || race.date;
+  const satISO = race.Qualifying?.date || race.date;
+  const sunISO = race.date;
+
+  slot.innerHTML = `
+    <div class="next-race-card">
+      <div class="race-header">
+        <div>
+          <div class="race-round">Round ${escapeHtml(race.round)} · ${escapeHtml(race.season || '')}</div>
+          <div class="race-name">${escapeHtml(race.raceName || 'Next race')}</div>
+          <div class="race-circuit">${escapeHtml(race.Circuit?.circuitName || '')} · ${escapeHtml(race.Circuit?.Location?.country || '')}</div>
+        </div>
+        <div class="race-dates">
+          <div class="when">${escapeHtml(dateLabel)}</div>
+          <div>${escapeHtml(raceDate.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', timeZoneName: 'short' }))}</div>
+        </div>
+      </div>
+      <div class="countdown-foot">Lights out in</div>
+      <div class="countdown">
+        <div class="countdown-cell"><div class="countdown-value" id="cd-days">--</div><div class="countdown-label">days</div></div>
+        <div class="countdown-cell"><div class="countdown-value" id="cd-hours">--</div><div class="countdown-label">hours</div></div>
+        <div class="countdown-cell"><div class="countdown-value" id="cd-mins">--</div><div class="countdown-label">mins</div></div>
+        <div class="countdown-cell"><div class="countdown-value" id="cd-secs">--</div><div class="countdown-label">secs</div></div>
+      </div>
+      <div class="weekend-weather">${renderWeekendWeatherInner(forecastData, friISO, satISO, sunISO)}</div>
+    </div>
+  `;
+  startCountdown(raceTimeISO);
+}
+
+function renderWeekendWeatherInner(forecast, friISO, satISO, sunISO) {
+  function emptyCard(label) { return `<div class="weather-card"><div class="weather-day">${label}</div><div class="weather-na">forecast n/a</div></div>`; }
+  if (!forecast?.daily) return emptyCard('Fri') + emptyCard('Sat') + emptyCard('Sun');
+  const { time, temperature_2m_max, temperature_2m_min, precipitation_probability_max, weathercode } = forecast.daily;
+  function cardFor(label, iso) {
+    const idx = time.indexOf(iso);
+    if (idx === -1) return emptyCard(label);
+    const hi = Math.round(temperature_2m_max[idx]);
+    const lo = Math.round(temperature_2m_min[idx]);
+    const rain = precipitation_probability_max[idx] || 0;
+    const icon = weatherIcon(weathercode[idx]);
+    const rainClass = rain >= 60 ? 'drop' : '';
+    return `<div class="weather-card"><div class="weather-day">${label}</div><div class="weather-icon">${icon}</div><div class="weather-temp">${hi}° / ${lo}°</div><div class="weather-rain"><span class="${rainClass}">●</span> ${rain}% rain</div></div>`;
+  }
+  return cardFor('Fri', friISO) + cardFor('Sat', satISO) + cardFor('Sun', sunISO);
+}
+
+function startCountdown(targetISO) {
+  clearCountdown();
+  const target = new Date(targetISO).getTime();
+  const prev = { d: null, h: null, m: null, s: null };
+  function tick() {
+    const diff = Math.max(0, target - Date.now());
+    const d = Math.floor(diff / 86400000);
+    const h = Math.floor((diff % 86400000) / 3600000);
+    const m = Math.floor((diff % 3600000) / 60000);
+    const s = Math.floor((diff % 60000) / 1000);
+    function update(id, val, key) {
+      const el = document.getElementById(id);
+      if (!el) return;
+      const str = String(val).padStart(2, '0');
+      if (el.textContent !== str) {
+        el.textContent = str;
+        if (prev[key] !== null) { el.classList.remove('flip'); void el.offsetWidth; el.classList.add('flip'); }
+        prev[key] = val;
+      }
+    }
+    update('cd-days', d, 'd');
+    update('cd-hours', h, 'h');
+    update('cd-mins', m, 'm');
+    update('cd-secs', s, 's');
+    if (diff <= 0) clearCountdown();
+  }
+  tick();
+  countdownTimer = setInterval(tick, 1000);
+}
+
+function renderRaceWeekendCard(weekendState) {
+  const slot = document.getElementById('raceHeroSlot');
+  const { state: st, session, nextRace } = weekendState;
+  const meetingName = nextRace?.raceName || session?.location || 'F1 Race Weekend';
+
+  if (st === 'LIVE') {
+    slot.innerHTML = `
+      <div class="race-weekend-card live">
+        <div class="rw-eyebrow live-eyebrow"><span class="live-pulse"></span><span>Race Weekend · LIVE</span></div>
+        <div class="rw-session-name">${escapeHtml(session.session_name || 'Live Session')}<span class="status">LIVE</span></div>
+        <div class="rw-meeting-name">${escapeHtml(meetingName)} · ${escapeHtml(session.circuit_short_name || '')}</div>
+        <div class="rw-live-positions" id="rw-positions"><div class="block-loading" style="padding:18px">Loading live positions…</div></div>
+        <div class="rw-live-indicator"><span class="live-pulse"></span>updating every 20s</div>
+      </div>`;
+    refreshLivePositions(session.session_key);
+    startLiveRefresh(session.session_key);
+  } else if (st === 'PRE-SESSION') {
+    slot.innerHTML = `
+      <div class="race-weekend-card">
+        <div class="rw-eyebrow"><span class="live-pulse" style="background:var(--warn);box-shadow:0 0 12px var(--warn)"></span><span>Race Weekend · UP NEXT</span></div>
+        <div class="rw-session-name">${escapeHtml(session.session_name || 'Next Session')}</div>
+        <div class="rw-meeting-name">${escapeHtml(meetingName)} · ${escapeHtml(session.circuit_short_name || '')}</div>
+        <div class="countdown-foot">Session starts in</div>
+        <div class="countdown rw-presession-timer">
+          <div class="countdown-cell"><div class="countdown-value" id="cd-hours">--</div><div class="countdown-label">hours</div></div>
+          <div class="countdown-cell"><div class="countdown-value" id="cd-mins">--</div><div class="countdown-label">mins</div></div>
+          <div class="countdown-cell"><div class="countdown-value" id="cd-secs">--</div><div class="countdown-label">secs</div></div>
+        </div>
+      </div>`;
+    startPresessionCountdown(session.date_start);
+  }
+}
+
+function startPresessionCountdown(targetISO) {
+  clearCountdown();
+  const target = new Date(targetISO).getTime();
+  const prev = { h: null, m: null, s: null };
+  function tick() {
+    const diff = Math.max(0, target - Date.now());
+    const h = Math.floor(diff / 3600000);
+    const m = Math.floor((diff % 3600000) / 60000);
+    const s = Math.floor((diff % 60000) / 1000);
+    function update(id, val, key) {
+      const el = document.getElementById(id);
+      if (!el) return;
+      const str = String(val).padStart(2, '0');
+      if (el.textContent !== str) {
+        el.textContent = str;
+        if (prev[key] !== null) { el.classList.remove('flip'); void el.offsetWidth; el.classList.add('flip'); }
+        prev[key] = val;
+      }
+    }
+    update('cd-hours', h, 'h');
+    update('cd-mins', m, 'm');
+    update('cd-secs', s, 's');
+    if (diff <= 0) { clearCountdown(); loadEverything(); }
+  }
+  tick();
+  countdownTimer = setInterval(tick, 1000);
+}
+
+async function refreshLivePositions(sessionKey) {
+  try {
+    const [positions, drivers] = await Promise.all([getOpenF1Position(sessionKey), getOpenF1Drivers(sessionKey)]);
+    if (!positions.length) {
+      const el = document.getElementById('rw-positions');
+      if (el) el.innerHTML = `<div class="block-empty" style="padding:18px">No position data for this session yet.</div>`;
+      return;
+    }
+    const latestByDriver = new Map();
+    for (const p of positions) {
+      const existing = latestByDriver.get(p.driver_number);
+      if (!existing || new Date(p.date) > new Date(existing.date)) latestByDriver.set(p.driver_number, p);
+    }
+    const driverByNumber = new Map();
+    for (const d of drivers) driverByNumber.set(d.driver_number, d);
+    const ordered = Array.from(latestByDriver.values()).filter(p => p.position).sort((a, b) => a.position - b.position).slice(0, 10);
+    const myCode = state.profile?.driverCode;
+    const html = `
+      <div class="rw-live-header"><div>POS</div><div>DRIVER</div><div style="text-align:right">NUM</div><div style="text-align:right">TEAM</div></div>
+      ${ordered.map(p => {
+        const d = driverByNumber.get(p.driver_number) || {};
+        const isMine = d.name_acronym && d.name_acronym === myCode;
+        const teamColor = d.team_colour ? `#${d.team_colour}` : '#666';
+        return `<div class="rw-live-row ${isMine ? 'you' : ''}" style="--team-color:${teamColor}">
+          <div class="rw-live-pos">${p.position}</div>
+          <div class="rw-live-drv"><span class="code">${escapeHtml(d.name_acronym || '???')}</span><span class="name">${escapeHtml(d.full_name || '')}</span></div>
+          <div class="rw-live-meta">#${p.driver_number}</div>
+          <div class="rw-live-meta">${escapeHtml(d.team_name || '—')}</div>
+        </div>`;
+      }).join('')}`;
+    const el = document.getElementById('rw-positions');
+    if (el) el.innerHTML = html;
+  } catch (e) { console.warn("Live refresh failed", e); }
+}
+
+function startLiveRefresh(sessionKey) {
+  stopLiveRefresh();
+  currentSessionKey = sessionKey;
+  liveRefreshTimer = setInterval(() => {
+    if (document.visibilityState === 'visible' && currentSessionKey) refreshLivePositions(currentSessionKey);
+  }, 20000);
+}
+
+/* ============================================================ */
+/* DASHBOARD SECTION RENDERERS — Phase 4                         */
+/* ============================================================ */
+function renderPodium(lastRace) {
+  const container = document.getElementById('podium-container');
+  const stories = document.getElementById('cool-down-stories');
+  if (!lastRace || !lastRace.Results?.length) {
+    container.innerHTML = `<div class="block-empty">No completed race yet this season.</div>`;
+    stories.style.display = 'none';
+    return;
+  }
+  const top3 = lastRace.Results.slice(0, 3);
+  container.innerHTML = `
+    <div class="panel-title" style="margin-bottom:14px;font-family:var(--font-mono);font-size:10px;letter-spacing:0.18em;text-transform:uppercase;color:var(--text-mute)">${escapeHtml(lastRace.raceName)} · ${escapeHtml(new Date(lastRace.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }))}</div>
+    <div class="podium">
+      ${top3.map(r => {
+        const color = colorForConstructor(r.Constructor?.constructorId);
+        return `<div class="podium-step" data-pos="${r.position}" style="--team-color:${color}">
+          <div class="podium-pos">P${r.position}</div>
+          <div class="podium-driver">${escapeHtml(driverShortName(r.Driver))}</div>
+          <div class="podium-team">${escapeHtml(r.Constructor?.name || '')}</div>
+          <div class="podium-time"><span class="label">Time</span>${escapeHtml(r.Time?.time || r.status || '—')}</div>
+        </div>`;
+      }).join('')}
+    </div>`;
+  const winner = lastRace.Results[0];
+  const fastestLap = lastRace.Results.find(r => r.FastestLap?.rank === '1');
+  const finishers = lastRace.Results.filter(r => r.status === 'Finished' || (r.status && r.status.startsWith('+'))).length;
+  stories.style.display = '';
+  stories.innerHTML = `<strong>${escapeHtml(driverShortName(winner.Driver))}</strong> took P1 for ${escapeHtml(winner.Constructor?.name || '')}. ${fastestLap ? `Fastest lap to <strong>${escapeHtml(driverShortName(fastestLap.Driver))}</strong> at ${escapeHtml(fastestLap.FastestLap?.Time?.time || '')}. ` : ''}${finishers} cars finished on the lead lap.`;
+}
+
+function renderQualifying(qualiRace) {
+  const container = document.getElementById('qualifying-container');
+  if (!qualiRace?.QualifyingResults?.length) {
+    container.innerHTML = `<div class="block-empty">No qualifying data yet this season.</div>`;
+    return;
+  }
+  const top10 = qualiRace.QualifyingResults.slice(0, 10);
+  const myDriverId = state.profile?.driverId;
+  container.innerHTML = `<div class="qualifying-list">${top10.map(q => {
+    const color = colorForConstructor(q.Constructor?.constructorId);
+    const isMine = q.Driver?.driverId === myDriverId;
+    const time = q.Q3 || q.Q2 || q.Q1 || '—';
+    return `<div class="qualifying-row ${isMine ? 'you' : ''}" style="--team-color:${color}">
+      <div class="qualifying-pos">P${q.position}</div>
+      <div class="qualifying-driver"><span class="name">${escapeHtml(driverShortName(q.Driver))}</span><span class="team">${escapeHtml(q.Constructor?.name || '')}</span></div>
+      <div class="qualifying-time">${escapeHtml(time)}</div>
+    </div>`;
+  }).join('')}</div>`;
+}
+
+function renderCalendar(schedule) {
+  const container = document.getElementById('calendar-container');
+  if (!schedule?.length) { container.innerHTML = `<div class="block-empty">No schedule available.</div>`; return; }
+  const now = Date.now();
+  let nextRoundNum = null;
+  for (const r of schedule) {
+    const rt = new Date(`${r.date}T${r.time || '13:00:00Z'}`).getTime();
+    if (rt > now) { nextRoundNum = Number(r.round); break; }
+  }
+  container.innerHTML = schedule.map(r => {
+    const rt = new Date(`${r.date}T${r.time || '13:00:00Z'}`).getTime();
+    const isDone = rt < now;
+    const isNext = Number(r.round) === nextRoundNum;
+    const status = isDone ? 'done' : (isNext ? 'next' : 'upcoming');
+    const dateStr = new Date(r.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    return `<div class="calendar-card ${status}">
+      <div class="cal-round">Round ${escapeHtml(r.round)}</div>
+      <div class="cal-name">${escapeHtml((r.raceName || '').replace(' Grand Prix', ' GP'))}</div>
+      <div class="cal-loc">${escapeHtml(r.Circuit?.Location?.country || '')}</div>
+      <div class="cal-date">${escapeHtml(dateStr)}</div>
+      <span class="cal-badge ${status}">${status === 'next' ? 'Up Next' : status === 'done' ? 'Done' : 'Upcoming'}</span>
+    </div>`;
+  }).join('');
+}
+
+function renderDriverStandings(standings) {
+  const container = document.getElementById('drivers-container');
+  if (!standings?.length) { container.innerHTML = `<div class="block-empty">No standings available yet.</div>`; return; }
+  const top10 = standings.slice(0, 10);
+  const myDriverId = state.profile?.driverId;
+  container.innerHTML = `<div class="standings">
+    <div class="standings-header"><div>POS</div><div>DRIVER</div><div class="wins">WINS</div><div class="pts">POINTS</div></div>
+    ${top10.map(s => {
+      const color = colorForConstructor(s.Constructors?.[0]?.constructorId);
+      const isMine = s.Driver?.driverId === myDriverId;
+      return `<div class="driver-row ${isMine ? 'you' : ''}" style="--team-color:${color}; animation-delay:${(Number(s.position)*0.04).toFixed(2)}s">
+        <div class="driver-pos">${escapeHtml(s.position)}</div>
+        <div class="driver-info"><span class="name">${escapeHtml(driverShortName(s.Driver))}</span><span class="team">${escapeHtml(s.Constructors?.[0]?.name || '')}</span></div>
+        <div class="driver-wins">${escapeHtml(s.wins)}</div>
+        <div class="driver-pts">${escapeHtml(s.points)}</div>
+      </div>`;
+    }).join('')}
+  </div>`;
+}
+
+function renderConstructorStandings(standings) {
+  const container = document.getElementById('constructors-container');
+  if (!standings?.length) { container.innerHTML = `<div class="block-empty">No constructor standings yet.</div>`; return; }
+  const myTeam = state.profile?.team;
+  container.innerHTML = `<div class="standings">
+    <div class="standings-header"><div>POS</div><div>TEAM</div><div class="pts">POINTS</div></div>
+    ${standings.map(s => {
+      const color = colorForConstructor(s.Constructor?.constructorId);
+      const isMine = s.Constructor?.name === myTeam;
+      return `<div class="constructor-row ${isMine ? 'you' : ''}" style="--team-color:${color}; animation-delay:${(Number(s.position)*0.04).toFixed(2)}s">
+        <div class="driver-pos">${escapeHtml(s.position)}</div>
+        <div class="driver-info"><span class="name">${escapeHtml(s.Constructor?.name || '')}</span><span class="team">${escapeHtml(s.wins)} wins</span></div>
+        <div class="driver-pts">${escapeHtml(s.points)}</div>
+      </div>`;
+    }).join('')}
+  </div>`;
+}
+
+async function renderYourDriver(driverStandings) {
+  const container = document.getElementById('your-driver-container');
+  const profile = state.profile;
+  if (!profile?.driverId) {
+    container.innerHTML = `<div class="your-driver-panel" style="grid-template-columns:1fr"><div style="text-align:center;padding:40px 20px"><div style="color:var(--text-dim);margin-bottom:16px">No driver picked yet.</div><button class="btn-primary" id="ydPickBtn">choose one →</button></div></div>`;
+    document.getElementById('ydPickBtn')?.addEventListener('click', () => document.getElementById('editProfile').click());
+    return;
+  }
+  const currentStanding = driverStandings?.find(s => s.Driver?.driverId === profile.driverId);
+  container.innerHTML = `<div class="your-driver-panel">
+    <div>
+      <div class="yd-eyebrow">${escapeHtml(profile.driverCode || '')} · #${escapeHtml(profile.number || '?')}</div>
+      ${profile.nickname ? `<div class="yd-nickname">"${escapeHtml(profile.nickname)}"</div>` : ''}
+      <div class="yd-name">${escapeHtml(profile.givenName || '')}<br>${escapeHtml(profile.familyName || '')}</div>
+      <div class="yd-team">${escapeHtml(profile.team || '')}</div>
+    </div>
+    <div>
+      <div class="yd-stats">
+        <div class="yd-stat"><div class="yd-stat-label">Championship</div><div class="yd-stat-value">${currentStanding ? `P${currentStanding.position}` : '—'}</div></div>
+        <div class="yd-stat"><div class="yd-stat-label">Season points</div><div class="yd-stat-value">${currentStanding ? currentStanding.points : '—'}</div></div>
+        <div class="yd-stat"><div class="yd-stat-label">Season wins</div><div class="yd-stat-value">${currentStanding ? currentStanding.wins : '—'}</div></div>
+        <div class="yd-stat"><div class="yd-stat-label">Career wins</div><div class="yd-stat-value" id="yd-career-wins">…</div></div>
+        <div class="yd-stat" style="grid-column:span 2"><div class="yd-stat-label">Career poles</div><div class="yd-stat-value" id="yd-career-poles">…</div></div>
+      </div>
+      <div class="yd-form-title">Last 5 races</div>
+      <div class="yd-form" id="yd-form-row"><div class="block-loading">Loading…</div></div>
+    </div>
+  </div>`;
+  const [careerWins, careerPoles, recent] = await Promise.all([
+    getDriverCareerWins(profile.driverId),
+    getDriverCareerPoles(profile.driverId),
+    getDriverRecentResults(profile.driverId, 5),
+  ]);
+  const cw = document.getElementById('yd-career-wins'); if (cw) cw.textContent = careerWins;
+  const cp = document.getElementById('yd-career-poles'); if (cp) cp.textContent = careerPoles;
+  const formEl = document.getElementById('yd-form-row');
+  if (formEl) {
+    if (!recent.length) formEl.innerHTML = `<div style="color:var(--text-mute);font-size:11px">No recent races yet.</div>`;
+    else formEl.innerHTML = recent.map(race => {
+      const result = race.Results?.[0]; if (!result) return '';
+      const pos = Number(result.position);
+      const cls = pos === 1 ? 'win' : (pos <= 3 ? 'podium' : (pos <= 10 ? 'points' : ''));
+      return `<span class="form-chip ${cls}" title="Round ${race.round} · ${race.raceName}">P${result.position}<span class="form-chip-label">R${race.round}</span></span>`;
+    }).join('');
+  }
+}
+
+/* ============================================================ */
+/* CHAMPIONSHIP WORM PLOT — Phase 6                              */
+/* ============================================================ */
+function computeWormData(races) {
+  if (!races?.length) return null;
+  const sorted = [...races].sort((a, b) => Number(a.round) - Number(b.round));
+  const drivers = {};
+  for (const race of sorted) {
+    const round = Number(race.round);
+    for (const did in drivers) {
+      while (drivers[did].points.length < round - 1) {
+        const last = drivers[did].points[drivers[did].points.length - 1] || 0;
+        drivers[did].points.push(last);
+      }
+    }
+    for (const result of (race.Results || [])) {
+      const id = result.Driver?.driverId;
+      if (!id) continue;
+      if (!drivers[id]) {
+        drivers[id] = {
+          driverId: id,
+          givenName: result.Driver.givenName,
+          familyName: result.Driver.familyName,
+          code: result.Driver.code,
+          color: colorForConstructor(result.Constructor?.constructorId),
+          points: new Array(round - 1).fill(0),
+        };
+      }
+      while (drivers[id].points.length < round - 1) {
+        const last = drivers[id].points[drivers[id].points.length - 1] || 0;
+        drivers[id].points.push(last);
+      }
+      const prev = drivers[id].points[round - 2] || 0;
+      drivers[id].points[round - 1] = prev + Number(result.points || 0);
+    }
+  }
+  return { drivers, completedRounds: sorted.length };
+}
+
+function renderWormPlot(seasonRaces) {
+  const container = document.getElementById('worm-container');
+  if (!seasonRaces || seasonRaces.length < 2) {
+    container.innerHTML = `<div class="block-empty">Not enough rounds yet — the championship picture appears after the second race.</div>`;
+    return;
+  }
+  const data = computeWormData(seasonRaces);
+  if (!data) { container.innerHTML = `<div class="block-empty">No data to plot.</div>`; return; }
+  const xRounds = data.completedRounds;
+  const W = 1000, H = 400;
+  const pl = 40, pr = 80, pt = 24, pb = 40;
+  const plotW = W - pl - pr, plotH = H - pt - pb;
+  let maxPoints = 0;
+  for (const id in data.drivers) {
+    const last = data.drivers[id].points[xRounds - 1] || 0;
+    if (last > maxPoints) maxPoints = last;
+  }
+  if (maxPoints === 0) maxPoints = 100;
+  const xScale = (r) => pl + ((r - 1) / Math.max(1, xRounds - 1)) * plotW;
+  const yScale = (p) => pt + plotH - (p / maxPoints) * plotH;
+  const myId = state.profile?.driverId;
+  const ids = Object.keys(data.drivers);
+  const others = ids.filter(id => id !== myId);
+  const mine = myId && data.drivers[myId] ? [myId] : [];
+  const tickStep = maxPoints > 400 ? 100 : maxPoints > 200 ? 50 : 25;
+  const yTicks = []; for (let t = 0; t <= maxPoints * 1.1; t += tickStep) yTicks.push(t);
+
+  function polyline(id, isMine) {
+    const pts = data.drivers[id].points.slice(0, xRounds).map((p, i) => `${xScale(i + 1).toFixed(1)},${yScale(p).toFixed(1)}`).join(' ');
+    const cls = isMine ? 'worm worm-you' : 'worm worm-other';
+    const style = isMine ? `stroke:var(--accent)` : `stroke:${data.drivers[id].color}`;
+    return `<polyline class="${cls}" points="${pts}" style="${style}"/>`;
+  }
+  function endLabel(id, isMine) {
+    const d = data.drivers[id];
+    const y = yScale(d.points[xRounds - 1] || 0);
+    const x = xScale(xRounds) + 6;
+    const cls = isMine ? 'worm-label worm-label-you' : 'worm-label';
+    const fill = isMine ? 'var(--accent)' : d.color;
+    const text = d.code || (d.familyName || '').slice(0, 3).toUpperCase();
+    return `<text x="${x}" y="${y.toFixed(1)}" dominant-baseline="middle" class="${cls}" fill="${fill}">${escapeHtml(text)}</text>`;
+  }
+
+  const xLabelStep = Math.max(1, Math.floor(xRounds / 8));
+  container.innerHTML = `
+    <svg viewBox="0 0 ${W} ${H}" class="worm-svg" preserveAspectRatio="xMidYMid meet">
+      ${yTicks.map(t => `<line class="grid-line" x1="${pl}" y1="${yScale(t).toFixed(1)}" x2="${W - pr}" y2="${yScale(t).toFixed(1)}"/>`).join('')}
+      ${yTicks.map(t => `<text class="axis-label" x="${pl - 6}" y="${yScale(t).toFixed(1)}" text-anchor="end" dominant-baseline="middle">${t}</text>`).join('')}
+      ${Array.from({length: xRounds}, (_, i) => i + 1).filter(r => r === 1 || r === xRounds || r % xLabelStep === 0).map(r => `<text class="axis-label" x="${xScale(r).toFixed(1)}" y="${H - 12}" text-anchor="middle">R${r}</text>`).join('')}
+      ${others.map(id => polyline(id, false)).join('')}
+      ${mine.map(id => polyline(id, true)).join('')}
+      ${others.map(id => endLabel(id, false)).join('')}
+      ${mine.map(id => endLabel(id, true)).join('')}
+    </svg>
+    <div class="worm-legend">
+      ${myId && data.drivers[myId] ? `<span><span class="legend-line"></span>${escapeHtml(state.profile.familyName || 'You')}</span>` : ''}
+      <span><span class="legend-line other"></span>Every other driver</span>
+      <span style="margin-left:auto">${xRounds} round${xRounds === 1 ? '' : 's'} complete</span>
+    </div>`;
+}
+
+/* ============================================================ */
+/* MAIN ORCHESTRATOR                                             */
+/* ============================================================ */
+let weekdayRefreshTimer = null;
+
+async function loadEverything() {
+  clearCountdown();
+  stopLiveRefresh();
+
+  const [schedule, drivers, constructors, lastRace, lastQuali, seasonResultsCurrent] = await Promise.all([
+    getSchedule(),
+    getDriverStandings(),
+    getConstructorStandings(),
+    getLastResults(),
+    getLastQualifying(),
+    getFullSeasonResults(new Date().getFullYear()),
+  ]);
+
+  state.drivers = drivers;
+  let seasonResults = seasonResultsCurrent;
+  if (!seasonResults.length) seasonResults = await getFullSeasonResults(FALLBACK_SEASON);
+
+  const weekendState = await detectWeekendState(schedule);
+  const nextRace = weekendState.nextRace || schedule.find(r => new Date(`${r.date}T${r.time || '13:00:00Z'}`).getTime() > Date.now()) || schedule[schedule.length - 1];
+
+  if (weekendState.state === 'LIVE' || weekendState.state === 'PRE-SESSION') {
+    renderRaceWeekendCard(weekendState);
+  } else {
+    let forecast = null;
+    if (nextRace?.Circuit?.Location?.lat && nextRace?.Circuit?.Location?.long) {
+      forecast = await getWeekendForecast(nextRace.Circuit.Location.lat, nextRace.Circuit.Location.long);
+    }
+    renderNextRaceCard(nextRace, forecast);
+  }
+
+  renderPodium(lastRace);
+  renderQualifying(lastQuali);
+  renderCalendar(schedule);
+  renderDriverStandings(drivers);
+  renderConstructorStandings(constructors);
+  renderYourDriver(drivers);
+  renderWormPlot(seasonResults);
+  updateLastUpdated();
+}
+
+function updateLastUpdated() {
+  const el = document.getElementById('updatedAgo');
+  if (el) el.textContent = 'just now';
+}
+
+function startWeekdayRefresh() {
+  if (weekdayRefreshTimer) clearInterval(weekdayRefreshTimer);
+  weekdayRefreshTimer = setInterval(() => {
+    if (document.visibilityState === 'visible') loadEverything();
+  }, 60000);
+}
+
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && currentSessionKey) {
+    refreshLivePositions(currentSessionKey);
+  }
+});
+
+/* ============================================================ */
+/* BOOT                                                          */
+/* ============================================================ */
+async function boot() {
+  bindOnboarding();
+  bindWelcome();
+  bindMouseGlow();
+
+  state.profile = loadProfile();
+  if (state.profile) applyProfile();
+
+  // Welcome runs in parallel with the data load — the user sees the lights
+  // while everything downstream is already fetching in the background.
+  runWelcome();
+
+  // Pre-fetch driver list so onboarding's grid is ready if shown
+  try {
+    state.drivers = await getDriverStandings();
+  } catch (e) {
+    console.warn("Pre-fetch driver standings failed", e);
+    state.drivers = [];
+  }
+
+  // Load everything else — schedule, last race, qualifying, calendar,
+  // standings, your driver, weekend weather, race weekend mode, worm plot.
+  // Runs independently of the welcome flow; if the user is still onboarding
+  // when this finishes, the populated dashboard is just waiting under the
+  // overlay.
+  try {
+    await loadEverything();
+  } catch (e) {
+    console.warn("Initial loadEverything failed", e);
+  }
+
+  // 60-second background refresh for the weekday-mode data.
+  // (Live-session refresh runs at 20s and is managed separately.)
+  startWeekdayRefresh();
+}
+
+// If profile changes via edit-profile, re-render anything that depends on it
+window.addEventListener('pitwall:profile-changed', () => {
+  loadEverything().catch(e => console.warn("Reload after profile change failed", e));
+});
+
+document.addEventListener("DOMContentLoaded", boot);
+</script>
+</body>
+</html>
