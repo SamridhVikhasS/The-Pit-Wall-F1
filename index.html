@@ -1436,80 +1436,107 @@ main {
 }
 
 /* ============================================================ */
-/* CHAMPIONSHIP WORM PLOT                                        */
+/* CHAMPIONSHIP TRAJECTORY (bump chart)                          */
 /* ============================================================ */
-.worm-plot {
+.trajectory-plot {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   padding: clamp(16px, 3vw, 28px);
-  overflow: hidden;
+  overflow-x: auto;
+  overflow-y: hidden;
 }
-.worm-svg {
+.trajectory-svg {
   width: 100%;
+  min-width: 900px;
   height: auto;
   display: block;
 }
-.worm-svg .grid-line { stroke: var(--border); stroke-width: 1; stroke-dasharray: 2 4; }
-.worm-svg .axis-label {
+.trajectory-svg .traj-border {
+  fill: none;
+  stroke: var(--border-strong);
+  stroke-width: 1;
+}
+.trajectory-svg .traj-axis-y,
+.trajectory-svg .traj-axis-x {
   font-family: var(--font-mono);
-  font-size: 9px;
-  letter-spacing: 0.12em;
+  font-size: 10px;
+  letter-spacing: 0.04em;
   fill: var(--text-mute);
+}
+.trajectory-svg .traj-axis-x {
+  fill: var(--text-dim);
   text-transform: uppercase;
 }
-.worm-svg .worm {
+.trajectory-svg .traj-axis-code {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+}
+.trajectory-svg .traj-axis-code.mine {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  filter: drop-shadow(0 0 3px var(--accent-glow));
+}
+.trajectory-svg .traj-line {
   fill: none;
   stroke-linejoin: round;
   stroke-linecap: round;
-  transition: opacity 0.3s, stroke-width 0.3s;
 }
-.worm-svg .worm-other {
-  stroke-width: 1.5;
-  opacity: 0.3;
+.trajectory-svg .traj-other {
+  stroke-width: 2;
+  opacity: 0.7;
 }
-.worm-svg .worm-you {
-  stroke-width: 3;
+.trajectory-svg .traj-mine {
+  stroke-width: 3.5;
   opacity: 1;
-  filter: drop-shadow(0 0 6px var(--accent-glow));
+  filter:
+    drop-shadow(0 0 3px var(--accent-glow))
+    drop-shadow(0 0 7px var(--accent-glow));
 }
-.worm-svg .worm-label {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+.trajectory-svg .traj-dot {
+  stroke: var(--surface);
+  stroke-width: 1.5;
 }
-.worm-svg .worm-label-you {
-  font-size: 12px;
-  font-weight: 700;
-  fill: var(--accent);
+.trajectory-svg .traj-dot-other { opacity: 0.85; }
+.trajectory-svg .traj-dot-mine {
+  stroke-width: 2;
+  filter: drop-shadow(0 0 3px var(--accent-glow));
 }
-.worm-legend {
-  margin-top: 16px;
+
+.trajectory-legend {
+  margin-top: 24px;
+  padding-top: 18px;
+  border-top: 1px solid var(--border);
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 14px 20px;
+}
+.traj-legend-team {
   display: flex;
-  align-items: center;
-  gap: 16px;
+  align-items: flex-start;
+  gap: 10px;
+}
+.traj-legend-swatch {
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+.traj-legend-names {
   font-family: var(--font-mono);
-  font-size: 10px;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: var(--text-mute);
-  flex-wrap: wrap;
+  font-size: 11px;
+  line-height: 1.5;
+  letter-spacing: 0.02em;
+  color: var(--text);
 }
-.worm-legend .legend-line {
-  display: inline-block;
-  width: 18px;
-  height: 3px;
-  background: var(--accent);
-  vertical-align: middle;
-  margin-right: 6px;
-  border-radius: 2px;
-}
-.worm-legend .legend-line.other {
-  background: var(--text-mute);
-  height: 1.5px;
-  opacity: 0.5;
+.traj-legend-name.mine {
+  color: var(--accent);
+  font-weight: 700;
+  letter-spacing: 0.04em;
 }
 
 /* Hero (stubbed for now — full version in Phase 4) */
@@ -1794,14 +1821,14 @@ footer {
     </div>
   </section>
 
-  <!-- § 07 · Championship Worm Plot -->
-  <section class="block" id="block-worm">
+  <!-- § 07 · Championship Trajectory -->
+  <section class="block" id="block-trajectory">
     <div class="block-head">
       <span class="block-num">07</span>
-      <h2 class="block-title">Championship <em>Worm</em></h2>
-      <span class="block-sub">cumulative points · round by round</span>
+      <h2 class="block-title">Championship <em>Trajectory</em></h2>
+      <span class="block-sub">position by round</span>
     </div>
-    <div id="worm-container" class="worm-plot">
+    <div id="worm-container" class="trajectory-plot">
       <div class="block-loading">Calculating championship trajectory…</div>
     </div>
   </section>
@@ -2813,20 +2840,20 @@ async function renderYourDriver(driverStandings) {
 }
 
 /* ============================================================ */
-/* CHAMPIONSHIP WORM PLOT — Phase 6                              */
+/* CHAMPIONSHIP TRAJECTORY (bump chart) — Phase 6                */
 /* ============================================================ */
-function computeWormData(races) {
+function computeChampionshipTrajectory(races) {
   if (!races?.length) return null;
   const sorted = [...races].sort((a, b) => Number(a.round) - Number(b.round));
+  const totalRounds = sorted.length;
   const drivers = {};
-  for (const race of sorted) {
-    const round = Number(race.round);
-    for (const did in drivers) {
-      while (drivers[did].points.length < round - 1) {
-        const last = drivers[did].points[drivers[did].points.length - 1] || 0;
-        drivers[did].points.push(last);
-      }
-    }
+
+  // Pass 1: collect every driver who entered a round and note their debut.
+  // Track latest team seen — for mid-season transfers (e.g. Lawson, Tsunoda
+  // in 2025), this gives them their current team's color and groups them
+  // correctly in the legend.
+  for (let i = 0; i < totalRounds; i++) {
+    const race = sorted[i];
     for (const result of (race.Results || [])) {
       const id = result.Driver?.driverId;
       if (!id) continue;
@@ -2836,80 +2863,198 @@ function computeWormData(races) {
           givenName: result.Driver.givenName,
           familyName: result.Driver.familyName,
           code: result.Driver.code,
+          debutRoundIdx: i,
+          cumPoints: new Array(totalRounds).fill(0),
+          positions: new Array(totalRounds).fill(0),
+          // Initialize team to first appearance; will be overwritten on each
+          // subsequent race for that driver.
+          constructorId: result.Constructor?.constructorId,
+          constructorName: result.Constructor?.name,
           color: colorForConstructor(result.Constructor?.constructorId),
-          points: new Array(round - 1).fill(0),
         };
+      } else {
+        // Update to latest team
+        drivers[id].constructorId = result.Constructor?.constructorId;
+        drivers[id].constructorName = result.Constructor?.name;
+        drivers[id].color = colorForConstructor(result.Constructor?.constructorId);
       }
-      while (drivers[id].points.length < round - 1) {
-        const last = drivers[id].points[drivers[id].points.length - 1] || 0;
-        drivers[id].points.push(last);
-      }
-      const prev = drivers[id].points[round - 2] || 0;
-      drivers[id].points[round - 1] = prev + Number(result.points || 0);
     }
   }
-  return { drivers, completedRounds: sorted.length };
+
+  // Pass 2: build cumulative points per round. Drivers who didn't compete
+  // in a given round carry their prior cumulative total forward.
+  for (let i = 0; i < totalRounds; i++) {
+    const race = sorted[i];
+    const ptsThisRound = {};
+    for (const result of (race.Results || [])) {
+      const id = result.Driver?.driverId;
+      if (!id) continue;
+      ptsThisRound[id] = Number(result.points || 0);
+    }
+    for (const did in drivers) {
+      const prev = i > 0 ? drivers[did].cumPoints[i - 1] : 0;
+      drivers[did].cumPoints[i] = prev + (ptsThisRound[did] || 0);
+    }
+  }
+
+  // Pass 3: rank drivers by cumulative points at each round.
+  // Tiebreaker: alphabetical by family name (stable, easy to reason about,
+  // F1's official best-finish-count tiebreak is overkill for a personal viz).
+  for (let i = 0; i < totalRounds; i++) {
+    const ranking = Object.values(drivers).sort((a, b) => {
+      const aPts = a.cumPoints[i] || 0;
+      const bPts = b.cumPoints[i] || 0;
+      if (bPts !== aPts) return bPts - aPts;
+      return (a.familyName || '').localeCompare(b.familyName || '');
+    });
+    ranking.forEach((d, idx) => { d.positions[i] = idx + 1; });
+  }
+
+  return { drivers, completedRounds: totalRounds, races: sorted };
 }
 
-function renderWormPlot(seasonRaces) {
+function renderChampionshipTrajectory(seasonRaces) {
   const container = document.getElementById('worm-container');
   if (!seasonRaces || seasonRaces.length < 2) {
-    container.innerHTML = `<div class="block-empty">Not enough rounds yet — the championship picture appears after the second race.</div>`;
+    container.innerHTML = `<div class="block-empty">Not enough rounds yet — the trajectory appears after the second race.</div>`;
     return;
   }
-  const data = computeWormData(seasonRaces);
+  const data = computeChampionshipTrajectory(seasonRaces);
   if (!data) { container.innerHTML = `<div class="block-empty">No data to plot.</div>`; return; }
+
   const xRounds = data.completedRounds;
-  const W = 1000, H = 400;
-  const pl = 40, pr = 80, pt = 24, pb = 40;
-  const plotW = W - pl - pr, plotH = H - pt - pb;
-  let maxPoints = 0;
-  for (const id in data.drivers) {
-    const last = data.drivers[id].points[xRounds - 1] || 0;
-    if (last > maxPoints) maxPoints = last;
+  const driverIds = Object.keys(data.drivers);
+  const numDrivers = driverIds.length;
+  if (numDrivers === 0) {
+    container.innerHTML = `<div class="block-empty">No drivers in the data yet.</div>`;
+    return;
   }
-  if (maxPoints === 0) maxPoints = 100;
+
+  // SVG layout: wider than the worm plot, taller because Y is discrete
+  // positions (~22) and bottom has vertical GP labels.
+  const W = 1100, H = 620;
+  const pl = 55, pr = 42, pt = 24, pb = 140;
+  const plotW = W - pl - pr;
+  const plotH = H - pt - pb;
+
+  // X = round (1-indexed). Y = championship position (1 = top).
   const xScale = (r) => pl + ((r - 1) / Math.max(1, xRounds - 1)) * plotW;
-  const yScale = (p) => pt + plotH - (p / maxPoints) * plotH;
+  const yScale = (pos) => pt + ((pos - 1) / Math.max(1, numDrivers - 1)) * plotH;
+
   const myId = state.profile?.driverId;
-  const ids = Object.keys(data.drivers);
-  const others = ids.filter(id => id !== myId);
+  const others = driverIds.filter(id => id !== myId);
   const mine = myId && data.drivers[myId] ? [myId] : [];
-  const tickStep = maxPoints > 400 ? 100 : maxPoints > 200 ? 50 : 25;
-  const yTicks = []; for (let t = 0; t <= maxPoints * 1.1; t += tickStep) yTicks.push(t);
 
-  function polyline(id, isMine) {
-    const pts = data.drivers[id].points.slice(0, xRounds).map((p, i) => `${xScale(i + 1).toFixed(1)},${yScale(p).toFixed(1)}`).join(' ');
-    const cls = isMine ? 'worm worm-you' : 'worm worm-other';
-    const style = isMine ? `stroke:var(--accent)` : `stroke:${data.drivers[id].color}`;
-    return `<polyline class="${cls}" points="${pts}" style="${style}"/>`;
+  // Map of championship position (1..N) → driver at that position in the
+  // LATEST round. Drives the left-axis driver-code labels — your line ends
+  // where your code sits, so it doubles as a quick "who's where right now"
+  // reference.
+  const latestIdx = xRounds - 1;
+  const driverAtPos = new Map();
+  for (const did in data.drivers) {
+    const d = data.drivers[did];
+    const p = d.positions[latestIdx];
+    if (p >= 1 && p <= numDrivers) driverAtPos.set(p, d);
   }
-  function endLabel(id, isMine) {
+
+  // Build polyline + dots for one driver from debut round onward
+  function driverPath(id, isMine) {
     const d = data.drivers[id];
-    const y = yScale(d.points[xRounds - 1] || 0);
-    const x = xScale(xRounds) + 6;
-    const cls = isMine ? 'worm-label worm-label-you' : 'worm-label';
-    const fill = isMine ? 'var(--accent)' : d.color;
-    const text = d.code || (d.familyName || '').slice(0, 3).toUpperCase();
-    return `<text x="${x}" y="${y.toFixed(1)}" dominant-baseline="middle" class="${cls}" fill="${fill}">${escapeHtml(text)}</text>`;
+    const stroke = isMine ? 'var(--accent)' : d.color;
+    const points = [];
+    for (let i = d.debutRoundIdx; i < xRounds; i++) {
+      points.push({ x: xScale(i + 1), y: yScale(d.positions[i]) });
+    }
+    if (points.length === 0) return '';
+    const pathStr = points.map(p => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
+    const lineCls = isMine ? 'traj-line traj-mine' : 'traj-line traj-other';
+    let svg = `<polyline class="${lineCls}" points="${pathStr}" style="stroke:${stroke}"/>`;
+    const dotCls = isMine ? 'traj-dot traj-dot-mine' : 'traj-dot traj-dot-other';
+    const dotR = isMine ? 4.5 : 3.2;
+    points.forEach(p => {
+      svg += `<circle class="${dotCls}" cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="${dotR}" style="fill:${stroke}"/>`;
+    });
+    return svg;
   }
 
-  const xLabelStep = Math.max(1, Math.floor(xRounds / 8));
+  // Dual Y-axis labels:
+  //   LEFT  — driver 3-letter code in team color (accent + glow for you)
+  //   RIGHT — bare position number (1..N)
+  const axisLabels = [];
+  for (let p = 1; p <= numDrivers; p++) {
+    const y = yScale(p);
+    // Left: driver code for whoever is at this position right now
+    const d = driverAtPos.get(p);
+    if (d) {
+      const isMine = d.driverId === myId;
+      const code = d.code || (d.familyName || '').slice(0, 3).toUpperCase();
+      const fill = isMine ? 'var(--accent)' : d.color;
+      const cls = isMine ? 'traj-axis-code mine' : 'traj-axis-code';
+      axisLabels.push(`<text class="${cls}" x="${pl - 10}" y="${y.toFixed(1)}" text-anchor="end" dominant-baseline="middle" fill="${fill}">${escapeHtml(code)}</text>`);
+    }
+    // Right: position number, neutral text-mute styling
+    axisLabels.push(`<text class="traj-axis-y" x="${W - pr + 8}" y="${y.toFixed(1)}" text-anchor="start" dominant-baseline="middle">${p}</text>`);
+  }
+
+  // X-axis labels — vertical, one per round. Use country name where short,
+  // strip "Grand Prix" from raceName as fallback.
+  const xLabels = data.races.map((race, i) => {
+    const x = xScale(i + 1);
+    const y = H - pb + 8;
+    let label = race.Circuit?.Location?.country
+      || (race.raceName || '').replace(/\s*Grand Prix\s*$/i, '')
+      || `R${i + 1}`;
+    // Cap length so rotated text doesn't crash into the legend below
+    if (label.length > 16) label = label.slice(0, 14) + '…';
+    return `<text class="traj-axis-x" x="${x.toFixed(1)}" y="${y}" text-anchor="end" transform="rotate(-90 ${x.toFixed(1)} ${y})">${escapeHtml(label)}</text>`;
+  }).join('');
+
+  // Outer rectangle around the plot area
+  const borderRect = `<rect class="traj-border" x="${pl}" y="${pt}" width="${plotW}" height="${plotH}"/>`;
+
   container.innerHTML = `
-    <svg viewBox="0 0 ${W} ${H}" class="worm-svg" preserveAspectRatio="xMidYMid meet">
-      ${yTicks.map(t => `<line class="grid-line" x1="${pl}" y1="${yScale(t).toFixed(1)}" x2="${W - pr}" y2="${yScale(t).toFixed(1)}"/>`).join('')}
-      ${yTicks.map(t => `<text class="axis-label" x="${pl - 6}" y="${yScale(t).toFixed(1)}" text-anchor="end" dominant-baseline="middle">${t}</text>`).join('')}
-      ${Array.from({length: xRounds}, (_, i) => i + 1).filter(r => r === 1 || r === xRounds || r % xLabelStep === 0).map(r => `<text class="axis-label" x="${xScale(r).toFixed(1)}" y="${H - 12}" text-anchor="middle">R${r}</text>`).join('')}
-      ${others.map(id => polyline(id, false)).join('')}
-      ${mine.map(id => polyline(id, true)).join('')}
-      ${others.map(id => endLabel(id, false)).join('')}
-      ${mine.map(id => endLabel(id, true)).join('')}
+    <svg viewBox="0 0 ${W} ${H}" class="trajectory-svg" preserveAspectRatio="xMidYMid meet">
+      ${borderRect}
+      ${axisLabels.join('')}
+      ${xLabels}
+      ${others.map(id => driverPath(id, false)).join('')}
+      ${mine.map(id => driverPath(id, true)).join('')}
     </svg>
-    <div class="worm-legend">
-      ${myId && data.drivers[myId] ? `<span><span class="legend-line"></span>${escapeHtml(state.profile.familyName || 'You')}</span>` : ''}
-      <span><span class="legend-line other"></span>Every other driver</span>
-      <span style="margin-left:auto">${xRounds} round${xRounds === 1 ? '' : 's'} complete</span>
-    </div>`;
+    ${renderTrajectoryLegend(data, myId)}
+  `;
+}
+
+function renderTrajectoryLegend(data, myId) {
+  // Group drivers by their latest constructor. Drivers who switched teams
+  // mid-season appear with their final team (per Pass 1's last-seen rule).
+  const teams = {};
+  for (const did in data.drivers) {
+    const d = data.drivers[did];
+    const tId = d.constructorId || 'unknown';
+    if (!teams[tId]) {
+      teams[tId] = { name: d.constructorName || 'Unknown', color: d.color, drivers: [] };
+    }
+    teams[tId].drivers.push(d);
+  }
+
+  // Sort teams alphabetically; within each team, drivers alphabetical
+  const teamRows = Object.values(teams)
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map(team => {
+      const driverList = team.drivers
+        .sort((a, b) => (a.familyName || '').localeCompare(b.familyName || ''))
+        .map(d => {
+          const isMine = d.driverId === myId;
+          return `<div class="traj-legend-name ${isMine ? 'mine' : ''}">${escapeHtml(d.givenName || '')} ${escapeHtml(d.familyName || '')}</div>`;
+        }).join('');
+      return `
+        <div class="traj-legend-team">
+          <div class="traj-legend-swatch" style="background:${team.color}"></div>
+          <div class="traj-legend-names">${driverList}</div>
+        </div>`;
+    }).join('');
+
+  return `<div class="trajectory-legend">${teamRows}</div>`;
 }
 
 /* ============================================================ */
@@ -2953,7 +3098,7 @@ async function loadEverything() {
   renderDriverStandings(drivers);
   renderConstructorStandings(constructors);
   renderYourDriver(drivers);
-  renderWormPlot(seasonResults);
+  renderChampionshipTrajectory(seasonResults);
   updateLastUpdated();
 }
 
