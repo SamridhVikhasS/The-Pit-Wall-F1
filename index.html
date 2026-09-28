@@ -1679,6 +1679,7 @@ footer {
       <input type="text" id="nameInput" placeholder="Your first name" maxlength="20" autocomplete="off" />
       <div class="onboarding-actions">
         <button class="btn-primary" id="nameNext" disabled>continue ›</button>
+        <button class="btn-ghost onboarding-cancel hidden">cancel</button>
       </div>
     </div>
 
@@ -1693,6 +1694,7 @@ footer {
       <div class="onboarding-actions">
         <button class="btn-ghost" id="driverBack">‹ back</button>
         <button class="btn-primary" id="driverConfirm" disabled>confirm driver ›</button>
+        <button class="btn-ghost onboarding-cancel hidden">cancel</button>
       </div>
     </div>
   </div>
@@ -1840,7 +1842,7 @@ footer {
 <footer>
   <div class="footer-inner">
     <div class="footer-brand">The <em>Pit Wall</em></div>
-    <div class="footer-version">F1 2026 · build v2-phase3 · personal edition</div>
+    <div class="footer-version">F1 2026 · build v2.1 · personal edition</div>
     <p class="footer-attribution">Inspired by Anirudh Goel's "The Pit Wall." Personalised for <strong><span id="userNameFooter">you</span></strong>.</p>
     <p class="footer-disclaimer">An unofficial fan project. Not affiliated with, endorsed by or associated with Formula 1, the FIA, FOM or any team. Driver and team names used for identification only.</p>
     <div class="footer-tag">Lights out and away we go</div>
@@ -1867,7 +1869,51 @@ const CACHE_PREFIX    = "pitwall.cache.v1.";
 const CACHE_FRESH_MS  = 5 * 60 * 1000;       // 5 min — "fresh," skip network
 const CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000; // 24 h — usable as fallback
 
-const FALLBACK_SEASON = "2025";
+// Year-based season resolution. We try the current calendar year first, then
+// progressively older years until we find one with actual standings data.
+// This replaces the /current endpoint, which can return 200 with empty
+// StandingsLists while an in-progress season has transitional data.
+// Resolved once per session and cached in module scope.
+let __resolvedSeason = null;
+let __resolvingSeason = null;
+
+function candidateSeasons() {
+  const now = new Date();
+  const yr = now.getFullYear();
+  // Grace period: Jan / Feb means the new season hasn't started yet.
+  const startYear = (now.getMonth() < 2) ? yr - 1 : yr;
+  return [startYear, startYear - 1, startYear - 2];
+}
+
+function resolveSeason() {
+  if (__resolvedSeason) return Promise.resolve(__resolvedSeason);
+  // Share one in-flight probe between all the parallel fetchers
+  if (!__resolvingSeason) {
+    __resolvingSeason = (async () => {
+      for (const yr of candidateSeasons()) {
+        try {
+          const j = await fetchJSON(`${JOLPICA}/${yr}/driverStandings.json`);
+          const list = j?.MRData?.StandingsTable?.StandingsLists?.[0]?.DriverStandings || [];
+          if (list.length) {
+            __resolvedSeason = String(yr);
+            console.info(`[Pit Wall] Active season → ${yr} (${list.length} drivers)`);
+            return __resolvedSeason;
+          }
+          console.warn(`[Pit Wall] Season ${yr} returned 0 drivers — trying older`);
+        } catch (e) {
+          console.warn(`[Pit Wall] Season ${yr} probe failed:`, e.message || e);
+        }
+      }
+      // Every probe failed (likely network) — don't memoise, so the next
+      // refresh tries again. Use the most recent candidate for now.
+      __resolvingSeason = null;
+      const fallback = String(candidateSeasons()[0]);
+      console.warn(`[Pit Wall] All season probes failed, using ${fallback} for now`);
+      return fallback;
+    })();
+  }
+  return __resolvingSeason;
+}
 
 /* Constructor → primary team colour, per 04-uiux-brief.md */
 const TEAM_COLORS = {
@@ -1963,8 +2009,9 @@ function colorForConstructor(id) {
 
 function setAccent(color) {
   document.documentElement.style.setProperty("--accent", color);
-  document.documentElement.style.setProperty("--accent-soft", `${color}22`);
-  document.documentElement.style.setProperty("--accent-glow", `${color}55`);
+  // color-mix works for any colour format (hex, and the hsl() fallback)
+  document.documentElement.style.setProperty("--accent-soft", `color-mix(in srgb, ${color} 13%, transparent)`);
+  document.documentElement.style.setProperty("--accent-glow", `color-mix(in srgb, ${color} 33%, transparent)`);
 }
 
 function driverShortName(driver) {
@@ -2002,6 +2049,15 @@ const escapeAttr = escapeHtml;
 /*   • Multi-source proxy chain                                  */
 /*   • Direct fetch for CORS-enabled APIs (Open-Meteo, OpenF1)   */
 /* ============================================================ */
+/* Wraps fetch with an AbortController so a slow upstream can't hang the
+   whole proxy chain (or the whole boot). */
+function fetchWithTimeout(url, opts = {}, timeoutMs = 8000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  return fetch(url, { ...opts, signal: controller.signal })
+    .finally(() => clearTimeout(timer));
+}
+
 function cacheGet(url) {
   try {
     const raw = localStorage.getItem(CACHE_PREFIX + url);
@@ -2023,57 +2079,69 @@ function cacheSet(url, data) {
  *   • Jolpica URLs → /api/jolpica → public proxies → cache
  *   • OpenF1 URLs  → /api/openf1  → direct (CORS) → cache
  *   • Any other    → direct fetch (Open-Meteo, etc.)
+ *
+ * Every attempt has a per-source timeout. 429s short-circuit to stale cache
+ * so we don't burn through the rest of the chain while being rate-limited.
+ *
+ * `live: true` bypasses the localStorage cache entirely — used for live
+ * session data that must be fresh every poll and is too large to store.
  */
-async function fetchJSON(url, opts = {}) {
-  // Non-proxied APIs: just fetch and (optionally) cache
+async function fetchJSON(url, { live = false, ...opts } = {}) {
+  // Non-proxied APIs: just fetch
   if (!url.startsWith(JOLPICA_PREFIX) && !url.startsWith(OPENF1_PREFIX)) {
-    const r = await fetch(url, { cache: "no-store", ...opts });
+    const r = await fetchWithTimeout(url, { cache: "no-store", ...opts }, 10000);
     if (!r.ok) throw new Error(`HTTP ${r.status} on ${url}`);
     return r.json();
   }
 
   // Fresh-cache shortcut
-  const cached = cacheGet(url);
+  const cached = live ? null : cacheGet(url);
   if (cached && Date.now() - cached.ts < CACHE_FRESH_MS) return cached.data;
 
-  // Build the source list per upstream
+  // Build the source list per upstream — each entry has its own timeout
   const encoded = encodeURIComponent(url);
   let sources;
   if (url.startsWith(JOLPICA_PREFIX)) {
     sources = [
-      `/api/jolpica?url=${encoded}`,                          // own serverless function
-      `https://api.allorigins.win/raw?url=${encoded}`,        // public proxy 1
-      `https://api.cors.lol/?url=${encoded}`,                 // public proxy 2
-      `https://thingproxy.freeboard.io/fetch/${url}`,         // public proxy 3 (raw URL appended)
+      { src: `/api/jolpica?url=${encoded}`,                   timeout: 8500 }, // own serverless function
+      { src: `https://api.allorigins.win/raw?url=${encoded}`, timeout: 6000 }, // public proxy 1
+      { src: `https://api.cors.lol/?url=${encoded}`,          timeout: 6000 }, // public proxy 2
+      { src: `https://thingproxy.freeboard.io/fetch/${url}`,  timeout: 6000 }, // public proxy 3 (raw URL appended)
     ];
   } else {
     sources = [
-      `/api/openf1?url=${encoded}`,                           // own serverless function
-      url,                                                    // direct — OpenF1 has CORS
+      { src: `/api/openf1?url=${encoded}`,                    timeout: 8500 }, // own serverless function
+      { src: url,                                             timeout: 6000 }, // direct — OpenF1 has CORS
     ];
   }
 
   let lastError = null;
-  for (const src of sources) {
+  for (const { src, timeout } of sources) {
     try {
-      const r = await fetch(src, { cache: "no-store", ...opts });
+      const r = await fetchWithTimeout(src, { cache: "no-store", ...opts }, timeout);
       if (r.ok) {
         const data = await r.json();
-        cacheSet(url, data);
+        if (!live) cacheSet(url, data);
         return data;
+      }
+      if (r.status === 429) {
+        console.warn(`[Pit Wall] 429 on ${src.split("?")[0]} — backing off`);
+        if (cached) return cached.data;
       }
       lastError = new Error(`HTTP ${r.status} via ${src.split("?")[0]}`);
     } catch (e) {
+      const isAbort = e && (e.name === "AbortError" || /aborted/i.test(String(e.message || e)));
+      console.warn(`[Pit Wall] ${isAbort ? "TIMEOUT" : "FAIL"} on ${src.split("?")[0]}: ${e.message || e}`);
       lastError = e;
     }
   }
 
   // All sources failed — serve stale cache if we have it
   if (cached) {
-    console.warn(`Proxies failed for ${url} — serving stale cache from ${new Date(cached.ts).toLocaleTimeString()}`);
+    console.warn(`[Pit Wall] All sources failed for ${url} — serving stale cache from ${new Date(cached.ts).toLocaleTimeString()}`);
     return cached.data;
   }
-  console.error(`Cannot reach upstream for ${url}. If running locally with python http.server, deploy to Vercel to use the /api/* serverless functions.`);
+  console.error(`[Pit Wall] No sources or cache available for ${url}`);
   throw lastError || new Error(`All sources failed for ${url}`);
 }
 
@@ -2082,15 +2150,11 @@ async function fetchJSON(url, opts = {}) {
 /* (More will be added in Phase 4)                               */
 /* ============================================================ */
 async function getDriverStandings() {
+  const season = await resolveSeason();
   try {
-    const j = await fetchJSON(`${JOLPICA}/current/driverStandings.json`);
-    const list = j?.MRData?.StandingsTable?.StandingsLists?.[0]?.DriverStandings || [];
-    if (list.length) return list;
-  } catch (e) { console.warn("Driver standings (current) failed", e); }
-  try {
-    const j = await fetchJSON(`${JOLPICA}/${FALLBACK_SEASON}/driverStandings.json`);
+    const j = await fetchJSON(`${JOLPICA}/${season}/driverStandings.json`);
     return j?.MRData?.StandingsTable?.StandingsLists?.[0]?.DriverStandings || [];
-  } catch (e) { console.warn("Driver standings (fallback) failed", e); return []; }
+  } catch (e) { console.warn("[Pit Wall] Driver standings failed", e); return []; }
 }
 
 /* ============================================================ */
@@ -2121,7 +2185,8 @@ function applyProfile() {
 async function runWelcome() {
   $("#welcomeSlang").textContent = `"${SLANG[Math.floor(Math.random() * SLANG.length)]}"`;
 
-  const hasSeen = !!localStorage.getItem(STORAGE_WELCOME);
+  let hasSeen = false;
+  try { hasSeen = !!localStorage.getItem(STORAGE_WELCOME); } catch { /* storage blocked */ }
   const isReturning = hasSeen && !!state.profile;
 
   if (isReturning) {
@@ -2160,7 +2225,7 @@ async function runWelcome() {
   $("#welcomeGoText").classList.add("visible");
   await sleep(500);
   $("#welcomeEnter").classList.add("visible");
-  localStorage.setItem(STORAGE_WELCOME, "1");
+  try { localStorage.setItem(STORAGE_WELCOME, "1"); } catch { /* storage blocked */ }
 }
 
 function closeWelcome() {
@@ -2187,33 +2252,69 @@ function bindWelcome() {
 /* ONBOARDING — Phase 2                                          */
 /* ============================================================ */
 function openOnboarding(includeStep1 = true) {
+  // Cancelling only makes sense when there's a saved profile to go back to
+  const canCancel = !!loadProfile();
+  $$(".onboarding-cancel").forEach((b) => b.classList.toggle("hidden", !canCancel));
   $("#onboarding").classList.remove("hidden");
   showStep(includeStep1 ? 1 : 2);
 }
 function showStep(n) {
   $$(".onboarding-step").forEach((el) => el.classList.remove("active"));
   $(`.onboarding-step[data-step="${n}"]`).classList.add("active");
-  if (n === 2) populateDriverGrid();
+  if (n === 2) { driverGridAttempts = 0; populateDriverGrid(); }
 }
 function closeOnboarding() {
   $("#onboarding").classList.add("hidden");
 }
 
+function isDriverStepActive() {
+  return !$("#onboarding").classList.contains("hidden")
+    && !!document.querySelector('.onboarding-step[data-step="2"]')?.classList.contains("active");
+}
+
+// Re-render the picker when data lands, but only if it's still showing the
+// loading / unavailable state — never reset a grid the user is browsing.
+function refreshDriverGridIfWaiting() {
+  if (isDriverStepActive() && !$("#driverGrid .driver-card")) populateDriverGrid();
+}
+
+let driverGridRetryTimer = null;
+let driverGridAttempts = 0;
+const DRIVER_GRID_MAX_ATTEMPTS = 6;   // × 1.5s ≈ 9s before showing "unavailable"
+
 function populateDriverGrid() {
   const grid = $("#driverGrid");
   const rows = state.drivers;
+  if (driverGridRetryTimer) { clearTimeout(driverGridRetryTimer); driverGridRetryTimer = null; }
+
   if (!rows.length) {
+    driverGridAttempts += 1;
+    if (driverGridAttempts <= DRIVER_GRID_MAX_ATTEMPTS) {
+      // Pre-fetch is probably still in flight — show loading and check again
+      grid.innerHTML = `<div class="empty-state">
+        <strong>Loading drivers…</strong><br /><br />
+        Pulling the current grid from Jolpica F1. This usually takes 2-3 seconds.
+        ${driverGridAttempts > 2 ? "<br /><br />Taking a bit longer than usual — retrying." : ""}
+      </div>`;
+      driverGridRetryTimer = setTimeout(() => {
+        if (isDriverStepActive()) populateDriverGrid();
+      }, 1500);
+      return;
+    }
     grid.innerHTML = `
       <div class="empty-state">
-        <strong>Driver list unavailable.</strong><br /><br />
-        Jolpica F1's API doesn't allow direct browser access (no CORS headers). The dashboard normally proxies through the included <code>/api/jolpica</code> Vercel function — once you deploy, this will work automatically.<br /><br />
-        If you're testing locally with <code>python -m http.server</code>, public CORS proxies are being tried as a fallback. Open the browser console to see which proxy is failing.<br /><br />
-        You can skip this step and pick a driver later via <code>/ edit profile</code>.
+        <strong>Driver list temporarily unavailable.</strong><br /><br />
+        Jolpica F1's data feed isn't responding right now. The list will appear here automatically if it comes back — or try refreshing the page.<br /><br />
+        You can also skip this step and pick your driver later via <code>/ edit profile</code>.
       </div>`;
     $("#driverConfirm").disabled = false;
     $("#driverConfirm").textContent = "skip ›";
     return;
   }
+
+  driverGridAttempts = 0;
+  $("#driverConfirm").textContent = "confirm driver ›";
+  $("#driverConfirm").disabled = !state.selectedDriverDuringOnboarding;
 
   grid.innerHTML = rows
     .map((s, i) => {
@@ -2222,10 +2323,11 @@ function populateDriverGrid() {
       const nick = driverNickname(s.Driver) || s.Constructors?.[0]?.name || "";
       const short = driverShortName(s.Driver);
       return `
-        <button class="driver-card"
+        <button class="driver-card${did && did === state.selectedDriverDuringOnboarding?.driverId ? " selected" : ""}"
                 data-driver-id="${escapeAttr(did)}"
                 data-team-color="${color}"
                 data-team-name="${escapeAttr(s.Constructors?.[0]?.name || "")}"
+                data-constructor-id="${escapeAttr(s.Constructors?.[0]?.constructorId || "")}"
                 data-code="${escapeAttr(s.Driver?.code || "")}"
                 data-number="${escapeAttr(s.Driver?.permanentNumber || "")}"
                 data-given="${escapeAttr(s.Driver?.givenName || "")}"
@@ -2250,6 +2352,7 @@ function populateDriverGrid() {
         givenName:  card.dataset.given,
         familyName: card.dataset.family,
         team:       card.dataset.teamName,
+        constructorId: card.dataset.constructorId,
         color:      card.dataset.teamColor,
         nickname:   card.dataset.nickname,
       };
@@ -2271,6 +2374,13 @@ function bindOnboarding() {
     showStep(2);
   });
   $("#driverBack").addEventListener("click", () => showStep(1));
+  $$(".onboarding-cancel").forEach((btn) => btn.addEventListener("click", () => {
+    // Discard in-progress edits and restore the saved profile + accent
+    state.profile = loadProfile();
+    state.selectedDriverDuringOnboarding = null;
+    if (state.profile?.color) setAccent(state.profile.color);
+    closeOnboarding();
+  }));
   $("#driverConfirm").addEventListener("click", () => {
     if (state.selectedDriverDuringOnboarding) {
       state.profile = { ...state.profile, ...state.selectedDriverDuringOnboarding };
@@ -2309,51 +2419,35 @@ function bindMouseGlow() {
 /* ADDITIONAL FETCHERS — Phase 4                                 */
 /* ============================================================ */
 async function getSchedule() {
+  const season = await resolveSeason();
   try {
-    const j = await fetchJSON(`${JOLPICA}/current.json?limit=100`);
-    const races = j?.MRData?.RaceTable?.Races || [];
-    if (races.length) return races;
-  } catch (e) { console.warn("Schedule (current) failed", e); }
-  try {
-    const j = await fetchJSON(`${JOLPICA}/${FALLBACK_SEASON}.json?limit=100`);
+    const j = await fetchJSON(`${JOLPICA}/${season}.json?limit=100`);
     return j?.MRData?.RaceTable?.Races || [];
-  } catch (e) { console.warn("Schedule (fallback) failed", e); return []; }
+  } catch (e) { console.warn("[Pit Wall] Schedule failed", e); return []; }
 }
 
 async function getConstructorStandings() {
+  const season = await resolveSeason();
   try {
-    const j = await fetchJSON(`${JOLPICA}/current/constructorStandings.json`);
-    const list = j?.MRData?.StandingsTable?.StandingsLists?.[0]?.ConstructorStandings || [];
-    if (list.length) return list;
-  } catch (e) { console.warn("Constructor standings (current) failed", e); }
-  try {
-    const j = await fetchJSON(`${JOLPICA}/${FALLBACK_SEASON}/constructorStandings.json`);
+    const j = await fetchJSON(`${JOLPICA}/${season}/constructorStandings.json`);
     return j?.MRData?.StandingsTable?.StandingsLists?.[0]?.ConstructorStandings || [];
-  } catch (e) { console.warn("Constructor standings (fallback) failed", e); return []; }
+  } catch (e) { console.warn("[Pit Wall] Constructor standings failed", e); return []; }
 }
 
 async function getLastResults() {
+  const season = await resolveSeason();
   try {
-    const j = await fetchJSON(`${JOLPICA}/current/last/results.json`);
-    const race = j?.MRData?.RaceTable?.Races?.[0];
-    if (race) return race;
-  } catch (e) { console.warn("Last results (current) failed", e); }
-  try {
-    const j = await fetchJSON(`${JOLPICA}/${FALLBACK_SEASON}/last/results.json`);
+    const j = await fetchJSON(`${JOLPICA}/${season}/last/results.json`);
     return j?.MRData?.RaceTable?.Races?.[0] || null;
-  } catch (e) { console.warn("Last results (fallback) failed", e); return null; }
+  } catch (e) { console.warn("[Pit Wall] Last results failed", e); return null; }
 }
 
 async function getLastQualifying() {
+  const season = await resolveSeason();
   try {
-    const j = await fetchJSON(`${JOLPICA}/current/last/qualifying.json`);
-    const race = j?.MRData?.RaceTable?.Races?.[0];
-    if (race) return race;
-  } catch (e) { console.warn("Last qualifying (current) failed", e); }
-  try {
-    const j = await fetchJSON(`${JOLPICA}/${FALLBACK_SEASON}/last/qualifying.json`);
+    const j = await fetchJSON(`${JOLPICA}/${season}/last/qualifying.json`);
     return j?.MRData?.RaceTable?.Races?.[0] || null;
-  } catch (e) { console.warn("Last qualifying (fallback) failed", e); return null; }
+  } catch (e) { console.warn("[Pit Wall] Last qualifying failed", e); return null; }
 }
 
 async function getDriverCareerWins(driverId) {
@@ -2370,21 +2464,52 @@ async function getDriverCareerPoles(driverId) {
   } catch { return 0; }
 }
 
-async function getDriverRecentResults(driverId, count = 5) {
-  try {
-    const j = await fetchJSON(`${JOLPICA}/current/drivers/${driverId}/results.json?limit=${count}`);
-    const races = j?.MRData?.RaceTable?.Races || [];
-    if (races.length) return races.slice(-count);
-    const j2 = await fetchJSON(`${JOLPICA}/${FALLBACK_SEASON}/drivers/${driverId}/results.json?limit=${count}`);
-    return (j2?.MRData?.RaceTable?.Races || []).slice(-count);
-  } catch (e) { console.warn("Recent results failed", e); return []; }
+/* Jolpica returns results in round order, so "last N" needs an offset of
+   total − N. A small first request reads MRData.total. */
+async function getLastNSeasonResults(season, driverId, count) {
+  const base = `${JOLPICA}/${season}/drivers/${driverId}/results.json`;
+  const head = await fetchJSON(`${base}?limit=1`);
+  const total = Number(head?.MRData?.total) || 0;
+  if (!total) return [];
+  const offset = Math.max(0, total - count);
+  const j = await fetchJSON(`${base}?limit=${count}&offset=${offset}`);
+  return j?.MRData?.RaceTable?.Races || [];
 }
 
-async function getFullSeasonResults(season) {
+async function getDriverRecentResults(driverId, count = 5) {
+  const season = await resolveSeason();
   try {
-    const j = await fetchJSON(`${JOLPICA}/${season}/results.json?limit=1000`);
-    return j?.MRData?.RaceTable?.Races || [];
-  } catch (e) { console.warn("Full season results failed", e); return []; }
+    const races = await getLastNSeasonResults(season, driverId, count);
+    if (races.length) return races;
+    // Prior season as a fallback so newly-active drivers still show form
+    return await getLastNSeasonResults(String(Number(season) - 1), driverId, count);
+  } catch (e) { console.warn("[Pit Wall] Recent results failed", e); return []; }
+}
+
+/* Jolpica caps `limit` at 100 result rows (~5 races), so page through the
+   season with offset and merge rows that belong to the same round. */
+const JOLPICA_PAGE = 100;
+async function getFullSeasonResults(season) {
+  const yr = season ? String(season) : await resolveSeason();
+  const base = `${JOLPICA}/${yr}/results.json`;
+  try {
+    const first = await fetchJSON(`${base}?limit=${JOLPICA_PAGE}&offset=0`);
+    const total = Number(first?.MRData?.total) || 0;
+    const pages = [first];
+    const offsets = [];
+    for (let off = JOLPICA_PAGE; off < total; off += JOLPICA_PAGE) offsets.push(off);
+    pages.push(...await Promise.all(offsets.map(off => fetchJSON(`${base}?limit=${JOLPICA_PAGE}&offset=${off}`))));
+
+    const byRound = new Map();
+    for (const page of pages) {
+      for (const race of (page?.MRData?.RaceTable?.Races || [])) {
+        const existing = byRound.get(race.round);
+        if (existing) existing.Results.push(...(race.Results || []));
+        else byRound.set(race.round, { ...race, Results: [...(race.Results || [])] });
+      }
+    }
+    return [...byRound.values()].sort((a, b) => Number(a.round) - Number(b.round));
+  } catch (e) { console.warn("[Pit Wall] Full season results failed", e); return []; }
 }
 
 /* OpenF1 fetchers */
@@ -2402,7 +2527,8 @@ async function getOpenF1Drivers(sessionKey) {
 }
 async function getOpenF1Position(sessionKey) {
   try {
-    const data = await fetchJSON(`${OPENF1}/position?session_key=${sessionKey}`);
+    // Live: must be fresh every poll, and the payload is too big for localStorage
+    const data = await fetchJSON(`${OPENF1}/position?session_key=${sessionKey}`, { live: true });
     return Array.isArray(data) ? data : [];
   } catch (e) { console.warn("OpenF1 position failed", e); return []; }
 }
@@ -2704,7 +2830,7 @@ function renderPodium(lastRace) {
     </div>`;
   const winner = lastRace.Results[0];
   const fastestLap = lastRace.Results.find(r => r.FastestLap?.rank === '1');
-  const finishers = lastRace.Results.filter(r => r.status === 'Finished' || (r.status && r.status.startsWith('+'))).length;
+  const finishers = lastRace.Results.filter(r => r.status === 'Finished').length;
   stories.style.display = '';
   stories.innerHTML = `<strong>${escapeHtml(driverShortName(winner.Driver))}</strong> took P1 for ${escapeHtml(winner.Constructor?.name || '')}. ${fastestLap ? `Fastest lap to <strong>${escapeHtml(driverShortName(fastestLap.Driver))}</strong> at ${escapeHtml(fastestLap.FastestLap?.Time?.time || '')}. ` : ''}${finishers} cars finished on the lead lap.`;
 }
@@ -2778,11 +2904,14 @@ function renderConstructorStandings(standings) {
   const container = document.getElementById('constructors-container');
   if (!standings?.length) { container.innerHTML = `<div class="block-empty">No constructor standings yet.</div>`; return; }
   const myTeam = state.profile?.team;
+  const myConstructorId = state.profile?.constructorId;
   container.innerHTML = `<div class="standings">
     <div class="standings-header"><div>POS</div><div>TEAM</div><div class="pts">POINTS</div></div>
     ${standings.map(s => {
       const color = colorForConstructor(s.Constructor?.constructorId);
-      const isMine = s.Constructor?.name === myTeam;
+      const isMine = myConstructorId
+        ? s.Constructor?.constructorId === myConstructorId
+        : s.Constructor?.name === myTeam;
       return `<div class="constructor-row ${isMine ? 'you' : ''}" style="--team-color:${color}; animation-delay:${(Number(s.position)*0.04).toFixed(2)}s">
         <div class="driver-pos">${escapeHtml(s.position)}</div>
         <div class="driver-info"><span class="name">${escapeHtml(s.Constructor?.name || '')}</span><span class="team">${escapeHtml(s.wins)} wins</span></div>
@@ -2834,7 +2963,7 @@ async function renderYourDriver(driverStandings) {
       const result = race.Results?.[0]; if (!result) return '';
       const pos = Number(result.position);
       const cls = pos === 1 ? 'win' : (pos <= 3 ? 'podium' : (pos <= 10 ? 'points' : ''));
-      return `<span class="form-chip ${cls}" title="Round ${race.round} · ${race.raceName}">P${result.position}<span class="form-chip-label">R${race.round}</span></span>`;
+      return `<span class="form-chip ${cls}" title="Round ${escapeAttr(race.round)} · ${escapeAttr(race.raceName)}">P${escapeHtml(result.position)}<span class="form-chip-label">R${escapeHtml(race.round)}</span></span>`;
     }).join('');
   }
 }
@@ -3066,18 +3195,19 @@ async function loadEverything() {
   clearCountdown();
   stopLiveRefresh();
 
-  const [schedule, drivers, constructors, lastRace, lastQuali, seasonResultsCurrent] = await Promise.all([
+  const [schedule, drivers, constructors, lastRace, lastQuali, seasonResults] = await Promise.all([
     getSchedule(),
     getDriverStandings(),
     getConstructorStandings(),
     getLastResults(),
     getLastQualifying(),
-    getFullSeasonResults(new Date().getFullYear()),
+    getFullSeasonResults(),
   ]);
 
-  state.drivers = drivers;
-  let seasonResults = seasonResultsCurrent;
-  if (!seasonResults.length) seasonResults = await getFullSeasonResults(FALLBACK_SEASON);
+  if (drivers.length) {
+    state.drivers = drivers;
+    refreshDriverGridIfWaiting();
+  }
 
   const weekendState = await detectWeekendState(schedule);
   const nextRace = weekendState.nextRace || schedule.find(r => new Date(`${r.date}T${r.time || '13:00:00Z'}`).getTime() > Date.now()) || schedule[schedule.length - 1];
@@ -3102,9 +3232,22 @@ async function loadEverything() {
   updateLastUpdated();
 }
 
-function updateLastUpdated() {
+let lastUpdatedAt = null;
+let updatedAgoTimer = null;
+
+function renderUpdatedAgo() {
   const el = document.getElementById('updatedAgo');
-  if (el) el.textContent = 'just now';
+  if (!el || !lastUpdatedAt) return;
+  const secs = Math.floor((Date.now() - lastUpdatedAt) / 1000);
+  el.textContent = secs < 10 ? 'just now'
+                 : secs < 60 ? `${secs}s ago`
+                 : `${Math.floor(secs / 60)}m ago`;
+}
+
+function updateLastUpdated() {
+  lastUpdatedAt = Date.now();
+  renderUpdatedAgo();
+  if (!updatedAgoTimer) updatedAgoTimer = setInterval(renderUpdatedAgo, 5000);
 }
 
 function startWeekdayRefresh() {
@@ -3135,13 +3278,16 @@ async function boot() {
   // while everything downstream is already fetching in the background.
   runWelcome();
 
-  // Pre-fetch driver list so onboarding's grid is ready if shown
-  try {
-    state.drivers = await getDriverStandings();
-  } catch (e) {
-    console.warn("Pre-fetch driver standings failed", e);
-    state.drivers = [];
-  }
+  // Pre-fetch driver list so onboarding's grid is ready if shown. Not awaited:
+  // if it's slow, the picker shows a "still loading" state and re-renders
+  // when the data lands.
+  getDriverStandings()
+    .then((d) => {
+      if (!d.length) return;
+      state.drivers = d;
+      refreshDriverGridIfWaiting();
+    })
+    .catch((e) => console.warn("[Pit Wall] Pre-fetch driver standings failed", e));
 
   // Load everything else — schedule, last race, qualifying, calendar,
   // standings, your driver, weekend weather, race weekend mode, worm plot.

@@ -28,11 +28,6 @@ Format per entry:
 > What we built: Strictly the Implementation Plan's reading. LIVE = `now ∈ [date_start, date_end]`. PRE-SESSION = `0 < (date_start − now) ≤ 2h`. POST-SESSION (the symmetric `now − date_end ≤ 2h`) is not implemented — the dashboard simply falls back to DEFAULT once a session ends, and the Cool-Down Lap section naturally updates as new race results land.
 > Why: A post-session "freshly finished" state would have been a fourth UI variant for little incremental value — the Cool-Down Lap card already shows the most recent race's podium within minutes of completion. Doc 03's wording should be tightened in v2 to remove the misleading `±` and match the Impl Plan's forward-only logic, or vice versa if we decide to add POST-SESSION.
 
-> **[Phase 4] · 05-schema.md · `team` field is the display name, not constructorId**
-> What the doc said: Schema lists `team: string` in `pitwall.profile.v2` with example "Ferrari" — display name.
-> What we built: As specified — `team` is the display name. But this caused a downstream friction: when we want to highlight "your constructor's row" in the Constructors' Cup, matching `profile.team === s.Constructor.name` is fragile across Jolpica's various ways of spelling teams over a season (e.g. "Sauber" vs "Kick Sauber"). The current build does match by name, but it should match by `constructorId` for robustness.
-> Why: We're keeping the match-by-name behaviour for now because adding `constructorId` to the saved profile requires re-onboarding everyone, which the current build doesn't migrate gracefully. v2 of the schema should add `constructorId: string` to the profile shape and the Constructor row highlight should switch to that field. The previous-build profiles will need a one-time read-only fallback or a migration that pulls the constructorId from the existing driverId.
-
 > **[Phase 6] · 05-schema.md, 04-uiux-brief.md · Worm plot end-labels use 3-letter code, fallback to family-name slice**
 > What the doc said: Schema doesn't specify the label format. UI/UX brief says "driver labels are at the end of each line" without saying what the label is.
 > What we built: Each end label is the driver's broadcast `code` field (e.g. "LEC", "VER"). If `code` is missing (older drivers in archival data sometimes don't have one), we fall back to the first 3 letters of `familyName` uppercased.
@@ -40,4 +35,8 @@ Format per entry:
 
 ## Resolved Deviations
 
-*(none yet)*
+> **[Phase 4] · 05-schema.md · `team` field is the display name, not constructorId**
+> What the doc said: Schema lists `team: string` in `pitwall.profile.v2` with example "Ferrari" — display name.
+> What we built: As specified — `team` is the display name. But this caused a downstream friction: when we want to highlight "your constructor's row" in the Constructors' Cup, matching `profile.team === s.Constructor.name` is fragile across Jolpica's various ways of spelling teams over a season (e.g. "Sauber" vs "Kick Sauber"). The current build does match by name, but it should match by `constructorId` for robustness.
+> Why: We're keeping the match-by-name behaviour for now because adding `constructorId` to the saved profile requires re-onboarding everyone, which the current build doesn't migrate gracefully. v2 of the schema should add `constructorId: string` to the profile shape and the Constructor row highlight should switch to that field. The previous-build profiles will need a one-time read-only fallback or a migration that pulls the constructorId from the existing driverId.
+> Resolution: the driver picker now also saves `constructorId` to the profile, and the Constructors' Cup highlight matches on it. Profiles saved before this change have no `constructorId` and fall back to matching by name until the user re-picks via `/ edit profile`.
