@@ -1,5 +1,8 @@
 # Pit Wall — Driver-Picker Fix Patches
 
+> **Status: applied.** All six patches are now in `index.html`, and the Vercel
+> functions live in `api/`. Kept for reference.
+
 Apply these patches to `index.html` in order. Each patch is `before` → `after`,
 matching by anchor text so they're unambiguous. The three Vercel function files
 in this folder (`api/jolpica.js`, `api/openf1.js`) are drop-in replacements.
